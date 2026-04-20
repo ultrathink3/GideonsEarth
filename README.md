@@ -135,6 +135,7 @@ Runs entirely in the browser. Your intelligence ops, your machine.
 | **GIDEON DEFENSE GRID** arcade | ✓ | ✓ | ✓ |
 | Global Leaderboard | ✓ | ✓ | ✓ |
 | **DOSSIER** auto-classifying sweep | 🔒 | ✓ | ✓ |
+   
 | **GRAPH** Maltego-style entity graph | 🔒 | ✓ | ✓ |
 | **CSINT** — CVE · KEV · ThreatFox · typosquat · favicon MMH3 · Tor | 🔒 | ✓ | ✓ |
 | **CERTSTREAM** — live TLS firehose | 🔒 | ✓ | ✓ |
@@ -155,7 +156,7 @@ Click **💎 UPGRADE** inside the app to open the pricing / activation modal.
 
 We accept **crypto only**. Send **≥ $9 (PRO)** or **≥ $25 (ENTERPRISE)** USD-equivalent
 to any address below, then email the transaction ID to
-**keys@gideonintel.io** (or open a GitHub issue with the txid).
+**csinttt@proton.me** (or open a GitHub issue with the txid).
 Your license key arrives within **24 hours**.
 
 | Chain | Address |

@@ -33,9 +33,8 @@ No build step. No npm. One `index.html` + a handful of ES modules.
 
 ## Tiers
 
-| | **FREE** | **PRO** · $9/mo | **ENTERPRISE** · $49/mo |
-|---|---|---|---|
-| GEO-IP tracer | ✓ | ✓ | ✓ |
+| | **FREE** | **PRO** · $9/mo | **ENTERPRISE** · $25/mo |
+|---|---|---|---| GEO-IP tracer | ✓ | ✓ | ✓ |
 | DNS + Cert-Transparency | ✓ | ✓ | ✓ |
 | Username hunt (WhatsMyName) | ✓ | ✓ | ✓ |
 | Email + HIBP k-anon password check | ✓ | ✓ | ✓ |

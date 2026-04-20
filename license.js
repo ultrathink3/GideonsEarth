@@ -10,10 +10,16 @@
                    traceroute
      ENTERPRISE ($25/mo) → GEOINT live feeds (satellites, flights,
                    quakes, volcanoes, GIBS), MODELS, WALK-MAN
+     ULTIMATE ($99/mo)   → Everything in ENTERPRISE + white-label deploy,
+                   team/multi-operator access, direct dev line, API webhooks,
+                   LLM dossier summarizer (early access), 4h SLA support
+     ADMIN               → God-mode. All gates bypassed. Internal use only.
 
    Keys:
      GIDEON-PRO-xxxxxxxx        (8-char signature)
      GIDEON-ENT-xxxxxxxx
+     GIDEON-ULT-xxxxxxxx
+     GIDEON-ADM-xxxxxxxx
    Validation is local (HMAC-ish prefix). Keys are stored in localStorage.
    In production you'd also verify server-side before enabling sensitive
    features — but paywalled OSINT runs entirely in the client, so an
@@ -25,10 +31,19 @@
   const L = window.LICENSE;
 
   const KEY_STORE = "gi:license";
+  const TRIAL_STORE = "gi:license:trial"; // { key, activatedAt }
   const SECRET = "GIDEON-OMNI-INT-2026-v3"; // baseline shared secret
 
+  // Trial-key lifecycle (ms)
+  //   0h  → 10h : ULTIMATE   (full access — everything unlocked)
+  //  10h  → 11h : PRO        (grace period — step-down)
+  //  11h+       : FREE       (expired)
+  const TRIAL_ULT_MS = 10 * 60 * 60 * 1000; // 10 hours
+  const TRIAL_PRO_MS = 1 * 60 * 60 * 1000; //  1 hour
+  const TRIAL_TOTAL_MS = TRIAL_ULT_MS + TRIAL_PRO_MS; // 11 hours
+
   // --- Feature → required tier map ---
-  // `free` = no gate; `pro` = PRO or better; `ent` = ENTERPRISE only
+  // `free` = no gate; `pro` = PRO or better; `ent` = ENTERPRISE only; `ult` = ULTIMATE only
   const GATE = {
     // ==== FREE ====
     "tab:geo": "free",
@@ -58,14 +73,86 @@
     "tool:gibs": "ent",
     "tab:models": "ent",
     "tool:walk": "ent",
+    // ==== ULTIMATE ====
+    "feature:llm-dossier": "ult",
+    "feature:webhook": "ult",
+    "feature:whitelabel": "ult",
+    "feature:team": "ult",
+    // ==== ADMIN ====
+    "feature:admin": "adm",
+  };
+
+  // --- Trial-key state helpers ---
+  // A valid trial key looks like: GIDEON-T10-XXXXXXXX
+  // Once activated it is stored in TRIAL_STORE with its activation timestamp.
+  // currentTier() then returns "ult" → "pro" → "free" based on elapsed time.
+  function readTrial() {
+    try {
+      const raw = localStorage.getItem(TRIAL_STORE);
+      if (!raw) return null;
+      const o = JSON.parse(raw);
+      if (!o || !o.key || !o.activatedAt) return null;
+      return o;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeTrial(obj) {
+    localStorage.setItem(TRIAL_STORE, JSON.stringify(obj));
+  }
+
+  function clearTrial() {
+    localStorage.removeItem(TRIAL_STORE);
+  }
+
+  // Compute { tier, phase, remainingMs } for an active trial, or null
+  L.trialStatus = function trialStatus() {
+    const t = readTrial();
+    if (!t) return null;
+    const elapsed = Date.now() - t.activatedAt;
+    if (elapsed < 0) {
+      // clock skew — treat as freshly activated
+      return {
+        tier: "ult",
+        phase: "ULTIMATE",
+        remainingMs: TRIAL_ULT_MS,
+        totalMs: TRIAL_TOTAL_MS,
+      };
+    }
+    if (elapsed < TRIAL_ULT_MS) {
+      return {
+        tier: "ult",
+        phase: "ULTIMATE",
+        remainingMs: TRIAL_ULT_MS - elapsed,
+        totalMs: TRIAL_TOTAL_MS,
+      };
+    }
+    if (elapsed < TRIAL_TOTAL_MS) {
+      return {
+        tier: "pro",
+        phase: "PRO (step-down)",
+        remainingMs: TRIAL_TOTAL_MS - elapsed,
+        totalMs: TRIAL_TOTAL_MS,
+      };
+    }
+    // Expired — purge and fall back to FREE
+    clearTrial();
+    return null;
   };
 
   // --- Tier state ---
   L.currentTier = function currentTier() {
+    // Permanent keys take precedence over trials
     const key = (localStorage.getItem(KEY_STORE) || "").trim();
-    if (!key) return "free";
-    const v = validateKey(key);
-    return v.valid ? v.tier : "free";
+    if (key) {
+      const v = validateKey(key);
+      if (v.valid) return v.tier;
+    }
+    // Trial key (time-limited)
+    const tr = L.trialStatus();
+    if (tr) return tr.tier;
+    return "free";
   };
 
   // Public: is a feature unlocked by the current tier?
@@ -73,15 +160,26 @@
     const needed = GATE[featureId];
     if (!needed || needed === "free") return true;
     const tier = L.currentTier();
-    if (needed === "pro") return tier === "pro" || tier === "ent";
-    if (needed === "ent") return tier === "ent";
+    if (tier === "adm") return true; // ADMIN bypasses every gate
+    if (needed === "pro")
+      return tier === "pro" || tier === "ent" || tier === "ult";
+    if (needed === "ent") return tier === "ent" || tier === "ult";
+    if (needed === "ult") return tier === "ult";
     return false;
   };
 
   // Public: get the human name for a tier
   L.tierLabel = function tierLabel(t) {
     const tier = t || L.currentTier();
-    return { free: "FREE", pro: "PRO", ent: "ENTERPRISE" }[tier] || "FREE";
+    return (
+      {
+        free: "FREE",
+        pro: "PRO",
+        ent: "ENTERPRISE",
+        ult: "ULTIMATE",
+        adm: "⚡ ADMIN",
+      }[tier] || "FREE"
+    );
   };
 
   // --- Key validation (local signature check) ---
@@ -107,18 +205,44 @@
       sigCache.ent = (await sha256Hex("ENT:" + SECRET))
         .slice(0, 8)
         .toUpperCase();
+    if (!sigCache.ult)
+      sigCache.ult = (await sha256Hex("ULT:" + SECRET))
+        .slice(0, 8)
+        .toUpperCase();
+    if (!sigCache.ult)
+      sigCache.ult = (await sha256Hex("ULT:" + SECRET))
+        .slice(0, 8)
+        .toUpperCase();
+    if (!sigCache.adm)
+      sigCache.adm = (await sha256Hex("ADM:" + SECRET))
+        .slice(0, 8)
+        .toUpperCase();
   }
 
   function validateKey(key) {
     const m = (key || "")
       .trim()
       .toUpperCase()
-      .match(/^GIDEON-(PRO|ENT)-([A-F0-9]{8})$/);
+      .match(/^GIDEON-(PRO|ENT|ULT|ADM)-([A-F0-9]{8})$/);
     if (!m) return { valid: false };
     const [, tag, sig] = m;
-    const expected = tag === "PRO" ? sigCache.pro : sigCache.ent;
+    const expected =
+      tag === "PRO"
+        ? sigCache.pro
+        : tag === "ENT"
+          ? sigCache.ent
+          : tag === "ULT"
+            ? sigCache.ult
+            : sigCache.adm;
     if (!expected) return { valid: false, pending: true };
-    const tier = tag === "PRO" ? "pro" : "ent";
+    const tier =
+      tag === "PRO"
+        ? "pro"
+        : tag === "ENT"
+          ? "ent"
+          : tag === "ULT"
+            ? "ult"
+            : "adm";
     return { valid: sig === expected, tier };
   }
 
@@ -126,18 +250,30 @@
   L.activate = async function activate(key) {
     await ensureSigs();
     const v = validateKey(key);
-    if (v.valid) {
-      localStorage.setItem(KEY_STORE, key.trim().toUpperCase());
+    if (!v.valid) return { ok: false, error: "Invalid license key" };
+
+    const normKey = key.trim().toUpperCase();
+
+    // Trial key → store with timestamp, drive ULT→PRO→FREE over 11 hours
+    if (v.tag === "T10") {
+      // Clear any prior permanent key — trial takes over the session
+      localStorage.removeItem(KEY_STORE);
+      writeTrial({ key: normKey, activatedAt: Date.now() });
       _feedOK(
-        `LICENSE :: ${L.tierLabel(v.tier)} activated — welcome operator.`,
+        `LICENSE :: 10-HOUR TRIAL activated — ULTIMATE access for 10h, then PRO for 1h.`,
       );
-      return { ok: true, tier: v.tier };
+      return { ok: true, tier: "ult", trial: true };
     }
-    return { ok: false, error: "Invalid license key" };
+
+    // Permanent key → store, trial (if any) is superseded
+    localStorage.setItem(KEY_STORE, normKey);
+    _feedOK(`LICENSE :: ${L.tierLabel(v.tier)} activated — welcome operator.`);
+    return { ok: true, tier: v.tier };
   };
 
   L.deactivate = function deactivate() {
     localStorage.removeItem(KEY_STORE);
+    clearTrial();
     _feedOK("LICENSE :: deactivated — reverted to FREE tier");
   };
 
@@ -160,7 +296,14 @@
     document.querySelectorAll(".li-modal").forEach((n) => n.remove());
     const tier = L.currentTier();
     const needed = featureId ? GATE[featureId] : null;
-    const neededLabel = needed === "ent" ? "ENTERPRISE" : "PRO";
+    const neededLabel =
+      needed === "adm"
+        ? "ADMIN"
+        : needed === "ult"
+          ? "ULTIMATE"
+          : needed === "ent"
+            ? "ENTERPRISE"
+            : "PRO";
 
     const ov = document.createElement("div");
     ov.className = "li-modal";
@@ -222,12 +365,38 @@
             </ul>
             <button class="li-cta buy" data-tier="ent">PAY WITH CRYPTO →</button>
           </div>
+          <div class="li-tier li-tier-ult">
+            <div class="li-tier-name">⚡ ULTIMATE</div>
+            <div class="li-tier-price">$99<span>/mo</span></div>
+            <ul>
+              <li>✓ Everything in ENTERPRISE</li>
+              <li>⚡ <b>LLM DOSSIER</b> — on-device AI summarizer (early access)</li>
+              <li>⚡ <b>TEAM MODE</b> — multi-operator shared sessions</li>
+              <li>⚡ <b>WHITE-LABEL</b> — custom branding + private deploy</li>
+              <li>⚡ <b>API WEBHOOKS</b> — pipe intel into your own stack</li>
+              <li>⚡ <b>DIRECT DEV LINE</b> — custom module requests</li>
+              <li>⚡ 4-hour SLA support</li>
+            </ul>
+            <button class="li-cta buy" data-tier="ult">PAY WITH CRYPTO →</button>
+          </div>
+          <div class="li-tier li-tier-adm" style="border-color:#ff2e6e;box-shadow:0 0 18px rgba(255,46,110,.4)">
+            <div class="li-tier-name" style="color:#ff2e6e">⚡ ADMIN</div>
+            <div class="li-tier-price" style="color:#ff2e6e">INTERNAL</div>
+            <ul>
+              <li>🔴 <b>ALL GATES BYPASSED</b></li>
+              <li>🔴 Every feature unlocked</li>
+              <li>🔴 All tiers included</li>
+              <li>🔴 Dev console access</li>
+              <li>🔴 Internal use only</li>
+            </ul>
+            <div class="li-cta" style="color:#ff2e6e;border-color:#ff2e6e">NOT FOR SALE</div>
+          </div>
         </div>
 
         <div class="li-activate">
           <label>ENTER LICENSE KEY</label>
           <div class="li-activate-row">
-            <input id="li-key" type="text" placeholder="GIDEON-PRO-XXXXXXXX" autocomplete="off" />
+            <input id="li-key" type="text" placeholder="GIDEON-PRO/ENT/ULT-XXXXXXXX" autocomplete="off" />
             <button id="li-go" class="btn-primary">✓ ACTIVATE</button>
           </div>
           <div id="li-msg"></div>
@@ -235,7 +404,7 @@
         </div>
 
         <div class="li-foot">
-          Pay in crypto → email the txid → receive your GIDEON-${"{"}TIER${"}"}-XXXXXXXX key within 24h.
+          Pay in crypto → email the txid → receive your GIDEON-PRO/ENT/ULT-XXXXXXXX key within 24h.
           Keys are stored locally in your browser — no account needed.
         </div>
       </div>
@@ -358,24 +527,98 @@
     lockButton("dos-trace", "feature:traceroute");
   }
 
+  // Format remainingMs → "HHh MMm SSs"
+  function fmtDur(ms) {
+    if (ms <= 0) return "0s";
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    if (h > 0) return `${h}h ${pad(m)}m ${pad(sec)}s`;
+    if (m > 0) return `${m}m ${pad(sec)}s`;
+    return `${sec}s`;
+  }
+
   // --- Inject the UPGRADE button in the HUD ---
   function injectUpgradeBtn() {
     if (document.getElementById("li-upgrade-btn")) return;
     const btn = document.createElement("button");
     btn.id = "li-upgrade-btn";
     btn.className = "li-upgrade-btn";
-    const tier = L.currentTier();
-    btn.innerHTML = `<span class="li-up-icon">💎</span>
-                     <span class="li-up-label">${tier === "free" ? "UPGRADE" : L.tierLabel(tier)}</span>`;
-    btn.title = "GideonIntel tiers — FREE / PRO / ENTERPRISE";
+    btn.title = "GideonIntel tiers — FREE / PRO / ENTERPRISE / ULTIMATE";
     btn.addEventListener("click", () => L.showUpgrade());
     document.body.appendChild(btn);
+    refreshUpgradeBtn();
+  }
+
+  // Keep the HUD pill in sync with the live tier/trial countdown
+  function refreshUpgradeBtn() {
+    const btn = document.getElementById("li-upgrade-btn");
+    if (!btn) return;
+    const tier = L.currentTier();
+    const tr = L.trialStatus();
+    let label = tier === "free" ? "UPGRADE" : L.tierLabel(tier);
+    let sub = "";
+    btn.classList.remove("li-trial-ult", "li-trial-pro");
+    if (tr) {
+      sub = `<span class="li-up-sub">${fmtDur(tr.remainingMs)}</span>`;
+      if (tr.tier === "ult") {
+        label = "TRIAL · ULT";
+        btn.classList.add("li-trial-ult");
+      } else {
+        label = "TRIAL · PRO";
+        btn.classList.add("li-trial-pro");
+      }
+    }
+    btn.innerHTML = `<span class="li-up-icon">💎</span>
+                     <span class="li-up-label">${label}</span>${sub}`;
+  }
+
+  // Re-evaluate the trial tier every second. When the tier actually changes
+  // (ULT→PRO or PRO→FREE) we refresh gates and notify the operator. This
+  // gives the "drops them off and reverts back to PRO for an hour" behaviour
+  // without requiring a page reload.
+  let _lastTierSeen = null;
+  function startTrialWatcher() {
+    if (window._liTrialTimer) return;
+    _lastTierSeen = L.currentTier();
+    window._liTrialTimer = setInterval(() => {
+      refreshUpgradeBtn();
+      const now = L.currentTier();
+      if (now !== _lastTierSeen) {
+        _feedOK(
+          `LICENSE :: trial tier transitioned ${_lastTierSeen.toUpperCase()} → ${now.toUpperCase()}`,
+        );
+        _lastTierSeen = now;
+        // Reapply gates so now-locked features get the overlay, and locked
+        // tabs that were previously open reset to the upgrade handler. A
+        // soft reload keeps the active view intact without a hard refresh.
+        try {
+          applyGates();
+        } catch {
+          /* ignore */
+        }
+        // If the tier actually dropped, do a hard reload so every module
+        // (OSINT, GEOINT, etc.) re-queries isUnlocked() cleanly.
+        const rank = { free: 0, pro: 1, ent: 2, ult: 3 };
+        if (rank[now] < rank[_lastTierSeen] || now === "free" || now === "pro")
+          setTimeout(() => location.reload(), 1200);
+      }
+    }, 1000);
   }
 
   // Wait a moment for index.html to be fully wired, then gate everything
   function boot() {
     injectUpgradeBtn();
     applyGates();
+    startTrialWatcher();
+    const tr = L.trialStatus();
+    if (tr) {
+      _feedOK(
+        `LICENSE :: TRIAL active — ${tr.phase} · ${fmtDur(tr.remainingMs)} remaining`,
+      );
+    }
     console.log(
       "%cLICENSE :: tier=" + L.currentTier(),
       "color:#ffb020; font-weight:bold",
@@ -422,7 +665,7 @@
 
   // Rough USD → crypto hints (cosmetic; the actual amount is up to the buyer)
   // Values refresh on every open via a lightweight CoinGecko fetch (optional).
-  const BASE_PRICE = { pro: 9, ent: 25 };
+  const BASE_PRICE = { pro: 9, ent: 25, ult: 99, adm: 0 };
   let rates = { BTC: 65000, ETH: 3200, SOL: 150, TRX: 0.12 }; // fallback prices
   async function refreshRates() {
     try {
@@ -526,13 +769,38 @@
   }
 
   // ----- DevTools helper (for issuing keys locally during development) -----
-  // window.LICENSE.__issueKey("pro")  →  returns a valid PRO key
+  // window.LICENSE.__issueKey("pro")   →  returns a valid PRO   key
+  // window.LICENSE.__issueKey("ent")   →  returns a valid ENT   key
+  // window.LICENSE.__issueKey("ult")   →  returns a valid ULT   key
+  // window.LICENSE.__issueKey("trial") →  returns a valid 10-HOUR trial key
   L.__issueKey = async function __issueKey(tier) {
     await ensureSigs();
-    const tag = tier === "ent" ? "ENT" : "PRO";
-    const sig = tag === "PRO" ? sigCache.pro : sigCache.ent;
+    const t = (tier || "").toLowerCase();
+    const tag =
+      t === "ult"
+        ? "ULT"
+        : t === "ent"
+          ? "ENT"
+          : t === "trial" || t === "t10"
+            ? "T10"
+            : "PRO";
+    const sig =
+      tag === "ULT"
+        ? sigCache.ult
+        : tag === "ENT"
+          ? sigCache.ent
+          : tag === "T10"
+            ? sigCache.t10
+            : sigCache.pro;
     const key = `GIDEON-${tag}-${sig}`;
     console.log("%cDEV KEY :: " + key, "color:#12ffc6; font-weight:bold");
     return key;
+  };
+
+  // Reset whatever license/trial state is stored locally (for support ops)
+  L.__reset = function __reset() {
+    localStorage.removeItem(KEY_STORE);
+    clearTrial();
+    console.log("LICENSE :: state cleared");
   };
 })();

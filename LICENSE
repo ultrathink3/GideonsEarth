@@ -1,0 +1,63 @@
+GideonsEarth / GideonIntel Source-Available License v1.0
+Copyright (c) 2026 ultrathink3
+
+Permission is hereby granted to any person obtaining a copy of this software
+and associated documentation files (the "Software") to do the following:
+
+PERMITTED USE
+  1. View, study, and learn from the source code for personal, non-commercial
+     educational purposes.
+  2. Self-host the FREE tier of the Software on your own infrastructure for
+     personal, non-commercial use.
+  3. Fork this repository on GitHub and submit pull requests / bug reports.
+
+RESTRICTED USE
+  You may NOT, without an express commercial license from the copyright holder:
+  1. Redistribute the PRO or ENTERPRISE tier features in a modified or
+     unmodified form, with or without the paywall removed.
+  2. Use the Software, or any derivative thereof, as the basis of a competing
+     commercial product or service.
+  3. Resell, relicense, or sub-license the Software or any part of it.
+  4. Remove, bypass, or disable the `license.js` paywall gate in a hosted
+     public deployment.
+  5. Use the Software in any way that violates applicable law, including but
+     not limited to unauthorized access to computer systems, privacy-invasive
+     surveillance, or harassment.
+
+PAID TIERS — CRYPTO ONLY
+  - PRO        ($9  / month USD)  — unlocks advanced OSINT + CSINT tabs
+  - ENTERPRISE ($49 / month USD)  — unlocks live GEOINT feeds, 3D models, WALK-MAN
+
+  Pay to any of the following wallets, then email the transaction id +
+  receiving address to the contact below to receive your license key
+  (GIDEON-PRO-XXXXXXXX or GIDEON-ENT-XXXXXXXX) within 24 hours.
+
+    ETH / USDT-ERC20 / USDC / EVM (Polygon, Arbitrum, Base, BSC):
+        0xBbeedC09212C66C6639BdF46ebC1910De6111b46
+
+    BTC (native SegWit):
+        bc1qu06prvw6085dlj5e6vuuwkx0wl8n5kka5xj7gn
+
+    SOL / USDC-SPL:
+        DVfJ3Hzuu4dcxWCk19Y9RLNLLAA4EeQwNP9xZRqTpaWw
+
+    TRON / USDT-TRC20:
+        TGcmWKHEx1o6sDXQhiD35HDtEzNeQAur8i
+
+  Contact for key delivery, custom / team / on-prem licensing:
+        keys@gideonintel.io
+        or open a GitHub issue at https://github.com/ultrathink3/GideonsEarth
+
+NO WARRANTY
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+THIRD-PARTY SERVICES
+  GideonIntel queries numerous public third-party APIs. Each is subject to
+  its own rate limits and terms of use. The user is solely responsible for
+  compliance with those terms.

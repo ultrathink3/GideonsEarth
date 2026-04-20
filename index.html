@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GideonsEarth // Recon Grid</title>
+
+    <!-- CesiumJS -->
+    <link href="https://cdn.jsdelivr.net/npm/cesium@1.118/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/cesium@1.118/Build/Cesium/Cesium.js"></script>
+
+    <!-- satellite.js — SGP4 orbit propagation for live TLE-fed satellites -->
+    <script src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <!-- Starfield (behind the Cesium canvas, showing around the planet) -->
+    <div class="starfield" id="starfield">
+        <div class="stars"></div>
+        <div class="stars-mid"></div>
+        <div class="stars-big"></div>
+    </div>
+
+    <!-- Scanline overlay -->
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <!-- Boot splash -->
+    <div id="boot">
+        <pre class="boot-ascii">
+   ██████╗ ██╗██████╗ ███████╗ ██████╗ ███╗   ██╗███████╗
+  ██╔════╝ ██║██╔══██╗██╔════╝██╔═══██╗████╗  ██║██╔════╝
+  ██║  ███╗██║██║  ██║█████╗  ██║   ██║██╔██╗ ██║███████╗
+  ██║   ██║██║██║  ██║██╔══╝  ██║   ██║██║╚██╗██║╚════██║
+  ╚██████╔╝██║██████╔╝███████╗╚██████╔╝██║ ╚████║███████║
+   ╚═════╝ ╚═╝╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝
+                   E  A  R  T  H   //   v2.1
+  </pre>
+        <div id="boot-log"></div>
+    </div>
+
+    <!-- Top HUD bar -->
+    <header class="hud-top">
+        <div class="brand">
+            <span class="logo-dot"></span>
+            <span class="brand-name">GIDEONS<span class="accent">EARTH</span></span>
+            <span class="brand-sub">// RECON GRID</span>
+        </div>
+        <div class="hud-center">
+            <div class="address-bar">
+                <input id="addr-input" type="text" placeholder="Search address or place...  (e.g. Times Square, NYC)" />
+                <button id="addr-go">GO</button>
+            </div>
+            <span class="divider">│</span>
+            <span id="hud-coords">LAT: --.---- LON: --.----</span>
+            <span class="divider">│</span>
+            <span id="hud-alt">ALT: -------- m</span>
+            <span class="divider">│</span>
+            <span id="hud-time">UTC --:--:--</span>
+        </div>
+        <div class="hud-status">
+            <span class="pulse-dot"></span>
+            <span id="hud-status">LINK: ONLINE</span>
+        </div>
+    </header>
+
+    <!-- Left toolbar -->
+    <aside class="tool-rail">
+        <button class="tool" data-view="globe" title="3D Globe"><span>◉</span></button>
+        <button class="tool" data-view="flat" title="2D Map"><span>▦</span></button>
+        <button class="tool" data-view="col" title="Columbus View"><span>◈</span></button>
+        <button class="tool active" id="btn-labels" title="Borders & Labels"><span>⌖</span></button>
+        <button class="tool" id="btn-roads" title="Roads & States"><span>🛣</span></button>
+        <button class="tool" id="btn-night" title="Night Lights"><span>☾</span></button>
+        <button class="tool" id="btn-grid" title="Lat/Lon Grid"><span>⌗</span></button>
+        <button class="tool" id="btn-fly" title="Fly to Random Hotspot"><span>✈</span></button>
+        <button class="tool" id="btn-walk" title="WALK-MAN (first-person walk mode)"><span>🚶</span></button>
+        <button class="tool" id="btn-sats" title="Live satellites (CelesTrak TLE)"><span>🛰</span></button>
+        <button class="tool" id="btn-flights" title="Live military ADS-B aircraft"><span>✈️</span></button>
+        <button class="tool" id="btn-quakes" title="USGS earthquakes (24h)"><span>⚠</span></button>
+        <button class="tool" id="btn-volcano" title="Active volcanoes"><span>🌋</span></button>
+        <button class="tool" id="btn-gibs" title="NASA GIBS true-color layer"><span>🌐</span></button>
+        <button class="tool" id="btn-clear" title="Clear Pins"><span>✕</span></button>
+    </aside>
+
+    <!-- GIDEON DEFENSE GRID — big standalone launch button + leaderboard -->
+    <div class="def-launch-group">
+        <button id="btn-defense" class="def-launch" title="GIDEON DEFENSE GRID — Asteroid defense arcade">
+            <span class="def-launch-icon">☄</span>
+            <span class="def-launch-label">DEFEND<br>EARTH</span>
+        </button>
+        <button id="btn-leaderboard" class="def-leaderboard" title="Defense Grid Leaderboard">
+            <span class="def-lb-icon">🏆</span>
+            <span class="def-lb-label">LEADER<br>BOARD</span>
+        </button>
+    </div>
+
+    <!-- Walk-Man HUD (appears when walk mode engaged) -->
+    <div id="walk-hud" class="walk-hud hidden">
+        <div class="walk-crosshair">+</div>
+        <div class="walk-help">
+            <div><b>W A S D</b> walk &nbsp;·&nbsp; <b>SHIFT</b> run &nbsp;·&nbsp; <b>SPACE</b> jump</div>
+            <div><b>MOUSE</b> look &nbsp;·&nbsp; <b>Q / E</b> up / down &nbsp;·&nbsp; <b>ESC</b> exit</div>
+        </div>
+        <div class="walk-stats">
+            <span id="walk-speed">0 m/s</span> · <span id="walk-hdg">000°</span>
+        </div>
+    </div>
+
+    <!-- Cesium container -->
+    <div id="cesiumContainer"></div>
+
+    <!-- Right OSINT / GIDEONINTEL panel -->
+    <aside class="recon-panel">
+        <div class="panel-header">
+            <span class="panel-title">GIDEON<span class="accent">INTEL</span> // OSINT</span>
+            <span class="panel-ver">v2.0 // SOTA</span>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" data-tab="dossier">DOSSIER</button>
+            <button class="tab" data-tab="graph">GRAPH</button>
+            <button class="tab" data-tab="csint">CSINT</button>
+            <button class="tab" data-tab="certstream">CERTSTREAM</button>
+            <button class="tab" data-tab="chrono">CHRONO</button>
+            <button class="tab" data-tab="opsec">OPSEC</button>
+            <button class="tab" data-tab="geo">GEO-IP</button>
+            <button class="tab" data-tab="dns">DNS/CERTS</button>
+            <button class="tab" data-tab="user">USERNAME</button>
+            <button class="tab" data-tab="email">EMAIL</button>
+            <button class="tab" data-tab="link">LINK-TRACE</button>
+            <button class="tab" data-tab="models">MODELS</button>
+            <button class="tab" data-tab="targets">TARGETS</button>
+            <button class="tab" data-tab="feed">LIVE-FEED</button>
+        </div>
+
+        <!-- DOSSIER — unified target sweep -->
+        <section class="tab-body active" data-body="dossier">
+            <label class="lbl">TARGET (auto-detect)</label>
+            <div class="row">
+                <input id="dos-input" type="text" placeholder="IP, domain, URL, email, @user, ASN, hash…" />
+                <button id="dos-go" class="btn-primary">SWEEP</button>
+            </div>
+            <div class="row" style="gap:6px; flex-wrap:wrap; margin-top:6px;">
+                <button id="dos-trace" class="btn-ghost">↯ Traceroute arc</button>
+                <button id="dos-export-json" class="btn-ghost">⬇ JSON</button>
+                <button id="dos-export-md" class="btn-ghost">⬇ Markdown</button>
+            </div>
+            <label class="lbl">HIBP API KEY <span style="opacity:.6">(optional, stored locally)</span></label>
+            <input id="hibp-key" type="text" placeholder="hibp-api-key" />
+
+            <div id="dos-class" class="result" style="min-height:auto;padding:6px 10px">
+                <div class="placeholder">// awaiting target…</div>
+            </div>
+            <div id="dos-result" class="result"></div>
+            <p class="hint">DOSSIER runs every applicable module in parallel: GeoIP · Shodan InternetDB · BGP/ASN ·
+                RDAP · DNS · Cert-Transparency · URLScan · Wayback · GitHub · Gravatar · HIBP.</p>
+        </section>
+
+        <!-- GEO-IP -->
+        <section class="tab-body" data-body="geo">
+            <label class="lbl">TARGET IP / HOSTNAME</label>
+            <div class="row">
+                <input id="ip-input" type="text" placeholder="8.8.8.8 or example.com" />
+                <button id="ip-go" class="btn-primary">TRACE</button>
+            </div>
+            <button id="ip-self" class="btn-ghost">▸ Locate My IP</button>
+
+            <div id="ip-result" class="result">
+                <div class="placeholder">// awaiting target...</div>
+            </div>
+        </section>
+
+        <!-- DNS + CERTS -->
+        <section class="tab-body" data-body="dns">
+            <label class="lbl">DOMAIN</label>
+            <div class="row">
+                <input id="dns-input" type="text" placeholder="example.com" />
+                <button id="dns-go" class="btn-primary">SCAN</button>
+            </div>
+            <div id="dns-result" class="result">
+                <div class="placeholder">// DoH A/AAAA/MX/NS/TXT/SPF/DMARC + crt.sh subdomains + RDAP</div>
+            </div>
+        </section>
+
+        <!-- USERNAME -->
+        <section class="tab-body" data-body="user">
+            <label class="lbl">USERNAME</label>
+            <div class="row">
+                <input id="user-input" type="text" placeholder="e.g. gideonintel" />
+                <button id="user-go" class="btn-primary">HUNT</button>
+            </div>
+            <p class="hint">Cross-platform username enumeration via the WhatsMyName dataset (600+ sites).
+                Results include clickable dossier links and a GitHub profile probe.</p>
+            <div id="user-result" class="result">
+                <div class="placeholder">// awaiting handle…</div>
+            </div>
+        </section>
+
+        <!-- EMAIL -->
+        <section class="tab-body" data-body="email">
+            <label class="lbl">EMAIL ADDRESS</label>
+            <div class="row">
+                <input id="em-input" type="text" placeholder="name@example.com" />
+                <button id="em-go" class="btn-primary">CHECK</button>
+            </div>
+            <label class="lbl">PASSWORD — check if pwned (k-anon, never sent in clear)</label>
+            <div class="row">
+                <input id="pw-input" type="text" placeholder="test password" />
+                <button id="pw-go" class="btn-primary">HIBP</button>
+            </div>
+            <div id="em-result" class="result">
+                <div class="placeholder">// Gravatar + MX + disposable + HIBP password k-anon</div>
+            </div>
+        </section>
+
+        <!-- GRAPH — Maltego-style entity canvas -->
+        <section class="tab-body" data-body="graph">
+            <label class="lbl">ENTITY GRAPH (from last DOSSIER sweep)</label>
+            <canvas id="graph-canvas" width="350" height="380"
+                style="background:#050a10;border:1px solid rgba(18,255,198,.25);border-radius:3px;width:100%;"></canvas>
+            <div class="row" style="margin-top:8px">
+                <button id="graph-rebuild" class="btn-ghost">↻ Rebuild from last dossier</button>
+                <button id="graph-clear" class="btn-ghost">✕ Clear</button>
+            </div>
+            <p class="hint">Drag nodes. Colors: 🟡 IP · 🟢 domain · 🔴 email · 🟣 CVE · 🔵 user · white generic.</p>
+        </section>
+
+        <!-- CSINT — Cyber Signals Intelligence -->
+        <section class="tab-body" data-body="csint">
+            <label class="lbl">CVE LOOKUP (NVD 2.0 + CISA KEV)</label>
+            <div class="row">
+                <input id="cve-input" type="text" placeholder="CVE-2024-3400" />
+                <button id="cve-go" class="btn-primary">LOOKUP</button>
+            </div>
+            <div id="cve-result" class="result">
+                <div class="placeholder">// CVE details + KEV-exploited flag</div>
+            </div>
+
+            <label class="lbl">THREATFOX IOC SEARCH (abuse.ch)</label>
+            <div class="row">
+                <input id="tfox-input" type="text" placeholder="IP · domain · md5/sha256" />
+                <button id="tfox-go" class="btn-primary">HUNT</button>
+            </div>
+            <div id="tfox-result" class="result"></div>
+
+            <label class="lbl">TYPOSQUAT GENERATOR</label>
+            <div class="row">
+                <input id="typo-input" type="text" placeholder="gideonintel.io" />
+                <button id="typo-go" class="btn-primary">GEN</button>
+            </div>
+            <div id="typo-result" class="result"></div>
+
+            <label class="lbl">FAVICON MMH3 HASH (Shodan pivot)</label>
+            <div class="row">
+                <input id="fav-input" type="text" placeholder="https://example.com/favicon.ico" />
+                <button id="fav-go" class="btn-primary">HASH</button>
+            </div>
+            <div id="fav-result" class="result"></div>
+
+            <label class="lbl">TOR EXIT CHECK</label>
+            <div class="row">
+                <input id="tor-input" type="text" placeholder="1.2.3.4" />
+                <button id="tor-go" class="btn-primary">CHECK</button>
+            </div>
+            <div id="tor-result" class="result"></div>
+        </section>
+
+        <!-- CERTSTREAM — live SSL cert firehose -->
+        <section class="tab-body" data-body="certstream">
+            <div class="row">
+                <button id="cs-start" class="btn-primary">▶ START STREAM</button>
+                <button id="cs-stop" class="btn-ghost">■ STOP</button>
+            </div>
+            <label class="lbl">FILTER (substring match)</label>
+            <input id="cs-filter" type="text" placeholder="e.g. bank, login, crypto" />
+            <div class="target-head" style="margin-top:10px">
+                <span>LIVE CERTS</span>
+                <span id="cs-count">0</span>
+            </div>
+            <div id="cs-list" class="feed-list"></div>
+            <p class="hint">Live tail of every TLS certificate being issued by public CAs (CT logs →
+                certstream.calidog.io). Critical for phish/typosquat early warning.</p>
+        </section>
+
+        <!-- CHRONO — sun-angle chronolocation -->
+        <section class="tab-body" data-body="chrono">
+            <label class="lbl">IMAGE TIMESTAMP (UTC, ISO)</label>
+            <input id="chrono-ts" type="text" placeholder="2026-04-20T14:30:00Z" />
+            <label class="lbl">SUN AZIMUTH ° (0 = N, 90 = E)</label>
+            <input id="chrono-az" type="text" placeholder="168" />
+            <label class="lbl">SUN ALTITUDE ° (0 = horizon)</label>
+            <input id="chrono-alt" type="text" placeholder="52" />
+            <button id="chrono-go" class="btn-primary full">☀ CHRONOLOCATE</button>
+            <div id="chrono-result" class="result">
+                <div class="placeholder">// finds lat/lon where the sun matches the observed angle
+                    at that time. Multiple candidates pinned on globe.</div>
+            </div>
+            <p class="hint">Classic Bellingcat / open-source intel technique. Works best with a clear
+                shadow cast by a vertical object whose height you know.</p>
+        </section>
+
+        <!-- OPSEC — your own browser footprint -->
+        <section class="tab-body" data-body="opsec">
+            <button id="opsec-go" class="btn-primary full">🛡 RUN SELF-CHECK</button>
+            <div id="opsec-result" class="result">
+                <div class="placeholder">// UA, tz, GPU, WebRTC leak, canvas fingerprint hash…</div>
+            </div>
+            <p class="hint">Everything a website can learn about you via JS alone. Useful for
+                benchmarking how well your VPN / browser hardening is working.</p>
+        </section>
+
+        <!-- LINK TRACE -->
+        <section class="tab-body" data-body="link">
+            <label class="lbl">REDIRECT URL (bait)</label>
+            <input id="link-url" type="text" placeholder="https://youtube.com/watch?..." />
+            <label class="lbl">CAMPAIGN TAG</label>
+            <input id="link-tag" type="text" placeholder="operation-nightowl" />
+            <button id="link-gen" class="btn-primary full">⚡ GENERATE INTEL LINK</button>
+            <div id="link-out" class="result"></div>
+            <p class="hint">GideonIntel-style shortener. Clicks are logged locally and pinned to the globe by
+                geo-IP.</p>
+        </section>
+
+        <!-- MODELS -->
+        <section class="tab-body" data-body="models">
+            <label class="lbl">UPLOAD 3D MODEL</label>
+            <div id="drop-zone" class="drop-zone">
+                <div class="dz-icon">⬆</div>
+                <div class="dz-text">Drop <b>.glb</b> / <b>.gltf</b> / <b>.zip</b> / <b>.obj</b> here<br>
+                    or <span class="dz-browse">click to browse</span></div>
+                <input id="file-input" type="file" accept=".glb,.gltf,.zip,.obj,.ifc,.las,.laz,.kml,.kmz,.czml"
+                    style="display:none" multiple />
+            </div>
+
+            <label class="lbl">PLACE AT (lat, lon)</label>
+            <div class="row">
+                <input id="model-lat" type="text" placeholder="lat e.g. 40.7128" />
+                <input id="model-lon" type="text" placeholder="lon e.g. -74.006" />
+            </div>
+            <button id="model-here" class="btn-ghost">▸ Use my current view center</button>
+
+            <div id="upload-status" class="result">
+                <div class="placeholder">// ready to upload — assets are tied to your Ion account</div>
+            </div>
+
+            <div class="target-head" style="margin-top:14px">
+                <span>RENDERED ASSETS</span>
+                <span id="asset-count">0</span>
+            </div>
+            <div id="asset-list" class="target-list"></div>
+            <button id="asset-refresh" class="btn-ghost">↻ Refresh from Ion</button>
+            <p class="hint">Files upload to your Cesium Ion account (asset IDs are saved), then stream
+                down as 3D Tiles or GLB and render on the globe here.</p>
+        </section>
+
+        <!-- TARGETS -->
+        <section class="tab-body" data-body="targets">
+            <div class="target-head">
+                <span>ACTIVE PINS</span>
+                <span id="target-count">0</span>
+            </div>
+            <div id="target-list" class="target-list"></div>
+        </section>
+
+        <!-- LIVE FEED -->
+        <section class="tab-body" data-body="feed">
+            <div class="feed-head">
+                <span>SIGINT FEED</span>
+                <span class="pulse-dot"></span>
+            </div>
+            <div id="feed-list" class="feed-list"></div>
+        </section>
+    </aside>
+
+    <!-- Bottom log ticker -->
+    <footer class="ticker">
+        <span class="ticker-label">[SYS]</span>
+        <div class="ticker-track" id="ticker-track">
+            <span>GideonsEarth online</span>
+            <span>::</span>
+            <span>CesiumJS renderer engaged</span>
+            <span>::</span>
+            <span>GideonIntel module loaded</span>
+            <span>::</span>
+            <span>geo-ip handshake ok</span>
+            <span>::</span>
+            <span>awaiting targets...</span>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+    <script src="osint.js"></script>
+    <script src="geoint.js"></script>
+    <script src="csint.js"></script>
+    <script src="osint-ui.js"></script>
+    <script src="int-ui.js"></script>
+    <script src="defense.js"></script>
+    <script src="license.js"></script>
+</body>
+
+</html>

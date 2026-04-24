@@ -178,6 +178,276 @@
     },
   };
 
+  // ── inline "Label: Value" row helper ─────────────────────────────────────
+  function iRow(key, val) {
+    if (val == null || val === "" || val === "undefined" || val === "null")
+      return "";
+    return `<div class="dos-irow"><span class="dos-irow-key">${escapeHtml(String(key))}:</span><span class="dos-irow-val">${escapeHtml(String(val))}</span></div>`;
+  }
+
+  // ── compact card preview — PayPal-style inline KV + photo top-right ───────
+  function renderCardPreview(mod, d) {
+    if (!d) return '<span class="dos-preview-empty">no data</span>';
+    if (d.error)
+      return `<span class="dos-preview-err">⚠ ${escapeHtml(d.error)}</span>`;
+
+    // Profile photo (top-right float)
+    let photo = "";
+    if (mod === "github" && d.user?.avatar_url)
+      photo = `<img class="dos-card-photo" src="${escapeHtml(d.user.avatar_url)}" alt="">`;
+    else if (mod === "email" && d.gravatar_exists)
+      photo = `<img class="dos-card-photo" src="${escapeHtml(d.gravatar_url)}&s=80" alt="">`;
+
+    let rows = "";
+    switch (mod) {
+      case "geoip":
+        rows = [
+          iRow("IP", d.ip),
+          iRow("City", d.city),
+          iRow(
+            "Country",
+            d.country
+              ? `${d.country} (${d.country_code || ""})`
+              : d.country_code,
+          ),
+          iRow("Org", d.org),
+          iRow("ASN", d.asn),
+          iRow("Timezone", d.timezone),
+        ].join("");
+        break;
+      case "shodan":
+        rows = [
+          iRow("IP", d.ip),
+          iRow("Ports", (d.ports || []).join(", ") || "none"),
+          iRow("CVEs", (d.vulns || []).join(", ") || "none"),
+          iRow("Hostnames", (d.hostnames || []).slice(0, 2).join(", ") || null),
+          iRow("Tags", (d.tags || []).join(", ") || null),
+        ].join("");
+        break;
+      case "bgp":
+        rows = [
+          iRow("ASN", d.asn || d.prefixes?.[0]?.asn?.asn),
+          iRow("Name", d.name || d.prefixes?.[0]?.asn?.name),
+          iRow("Country", d.country_code || d.prefixes?.[0]?.asn?.country_code),
+          iRow("Prefixes", d.prefixes?.length),
+        ].join("");
+        break;
+      case "dns": {
+        const aRecs = (d.A || []).map((r) => r.data).join(", ");
+        const mxRecs = (d.MX || []).map((r) => r.data).join(", ");
+        rows = [
+          iRow("A", aRecs || null),
+          iRow("MX", mxRecs || null),
+          iRow(
+            "NS",
+            (d.NS || [])
+              .map((r) => r.data)
+              .slice(0, 2)
+              .join(", ") || null,
+          ),
+          iRow(
+            "TXT",
+            (d.TXT || []).length ? `${(d.TXT || []).length} records` : null,
+          ),
+        ].join("");
+        break;
+      }
+      case "certs":
+        rows = [
+          iRow("CT Rows", d.count),
+          iRow("Subdomains", (d.subs || []).length),
+          iRow("Sample", (d.subs || []).slice(0, 2).join(", ") || null),
+        ].join("");
+        break;
+      case "rdap":
+        rows = [
+          iRow("Handle", d.handle),
+          iRow("Name", d.name || d.ldhName),
+          iRow("Status", (d.status || []).slice(0, 2).join(", ")),
+        ].join("");
+        break;
+      case "urlscan":
+        rows = [
+          iRow("Total Scans", d.total || 0),
+          iRow("Latest ID", (d.results || [])[0]?._id || null),
+        ].join("");
+        break;
+      case "wayback": {
+        const s = d.archived_snapshots?.closest;
+        rows = s
+          ? [
+              iRow("Status", s.status),
+              iRow("Timestamp", s.timestamp?.slice(0, 8)),
+              iRow("URL", (s.url || "").slice(0, 40) + "…"),
+            ].join("")
+          : iRow("Status", "No snapshot");
+        break;
+      }
+      case "email":
+        rows = [
+          iRow("Domain", d.domain),
+          iRow("Gravatar", d.gravatar_exists ? "✓ Found" : "✗ None"),
+          iRow(
+            "MX",
+            (d.mx || [])
+              .map((r) => r.data)
+              .slice(0, 2)
+              .join(", ") || null,
+          ),
+          iRow("Disposable", d.disposable ? "⚠ Yes" : "No"),
+        ].join("");
+        break;
+      case "username": {
+        const sites = Array.isArray(d) ? d : [];
+        rows = [
+          iRow("Sites", sites.length),
+          iRow("Action", "Click to search all"),
+        ].join("");
+        break;
+      }
+      case "github":
+        rows = [
+          iRow("Login", d.user?.login),
+          iRow("Name", d.user?.name),
+          iRow("Location", d.user?.location),
+          iRow("Repos", d.user?.public_repos),
+          iRow("Followers", d.user?.followers),
+          iRow("Created", d.user?.created_at?.slice(0, 10)),
+        ].join("");
+        break;
+      case "hibp": {
+        const b = d.breaches || [];
+        rows = [
+          iRow("Breaches", b.length ? `⚠ ${b.length}` : "✓ Clean"),
+          ...b
+            .slice(0, 3)
+            .map((br) =>
+              iRow(
+                br.Name,
+                `${br.BreachDate} · ${Number(br.PwnCount).toLocaleString()}`,
+              ),
+            ),
+        ].join("");
+        break;
+      }
+      default:
+        rows = iRow(mod, JSON.stringify(d).slice(0, 80));
+    }
+
+    return `${photo}<div class="dos-preview-rows">${rows}</div>`;
+  }
+
+  // ── full-screen module modal ──────────────────────────────────────────────
+  function showModuleModal(mod, data, title, favicon, input) {
+    document.querySelectorAll(".dos-modal-overlay").forEach((n) => n.remove());
+    const ov = document.createElement("div");
+    ov.className = "dos-modal-overlay";
+    ov.innerHTML = `
+      <div class="dos-modal">
+        <div class="dos-modal-head">
+          <img class="dos-card-favicon" src="https://www.google.com/s2/favicons?domain=${escapeHtml(favicon)}&sz=24" onerror="this.style.display='none'" alt="">
+          <span class="dos-modal-title">${escapeHtml(title)}</span>
+          <button class="dos-modal-close">✕</button>
+        </div>
+        <div class="dos-modal-body" id="dos-modal-body">
+          ${mod === "username" ? `<div class="dos-modal-wmn"></div>` : renderCardBody(mod, data)}
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    ov.querySelector(".dos-modal-close").onclick = () => ov.remove();
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) ov.remove();
+    });
+
+    if (mod === "username") {
+      const sites = Array.isArray(data) ? data : [];
+      const wmn = ov.querySelector(".dos-modal-wmn");
+      buildWMNSearch(wmn, sites, new Map());
+      startWMNProbeModal(input || "", wmn);
+    }
+  }
+
+  // ── WMN search modal (all sites, no pagination, real-time filter) ─────────
+  function buildWMNSearch(container, sites, statuses) {
+    if (!container) return;
+    statuses = statuses || new Map();
+    const found = [...statuses.values()].filter((v) => v === "found").length;
+    const probed = [...statuses.values()].filter((v) => v !== "pending").length;
+    const total = sites.length;
+
+    container._wmnSites = sites;
+    container._wmnStatuses = statuses;
+
+    const searchVal = container.querySelector(".wmn-search-input")?.value || "";
+
+    container.innerHTML = `
+      <div class="wmn-search-bar">
+        <input class="wmn-search-input" placeholder="Search ${total} sites…" type="text" autocomplete="off" value="${escapeHtml(searchVal)}">
+        <div class="wmn-probe-status">
+          <span class="wmn-probe-found">● ${found} found</span>
+          &nbsp;·&nbsp;
+          <span class="wmn-probe-scanned">${probed} / ${total} probed</span>
+          ${probed < total ? '<span class="wmn-probe-spinner">↻</span>' : ""}
+        </div>
+      </div>
+      <div class="wmn-search-links">
+        ${sites
+          .map((s) => {
+            const st = statuses.get(s.name);
+            const cls =
+              st === "found"
+                ? "user-site wmn-found"
+                : st === "not_found"
+                  ? "user-site wmn-not-found"
+                  : "user-site wmn-pending";
+            const hide =
+              searchVal &&
+              !s.name.toLowerCase().includes(searchVal.toLowerCase())
+                ? ' style="display:none"'
+                : "";
+            return `<a class="${cls}" href="${escapeHtml(s.url)}" target="_blank" title="${escapeHtml(s.category || "")}"${hide}>${escapeHtml(s.name)}</a>`;
+          })
+          .join(" ")}
+      </div>`;
+
+    const inp = container.querySelector(".wmn-search-input");
+    if (inp) {
+      inp.focus();
+      inp.addEventListener("input", () => {
+        const q = inp.value.toLowerCase().trim();
+        container.querySelectorAll(".user-site").forEach((a) => {
+          a.style.display =
+            !q || a.textContent.toLowerCase().includes(q) ? "" : "none";
+        });
+      });
+    }
+  }
+
+  function startWMNProbeModal(username, container) {
+    if (!container || !username) return;
+    const sites = container._wmnSites || [];
+    const statuses = container._wmnStatuses || new Map();
+    sites.forEach((s) => {
+      if (!statuses.has(s.name)) statuses.set(s.name, "pending");
+    });
+
+    let renderTimer = null;
+    function scheduleRender() {
+      if (renderTimer) return;
+      renderTimer = setTimeout(() => {
+        renderTimer = null;
+        buildWMNSearch(container, container._wmnSites, statuses);
+      }, 150);
+    }
+    GI.usernameProbe(username, (hit) => {
+      statuses.set(
+        hit.site,
+        hit.status === "reachable" ? "found" : "not_found",
+      );
+      scheduleRender();
+    });
+  }
+
   function renderReport(report) {
     // ── header strip ─────────────────────────────────────────────────────────
     const modCount = Object.keys(report.modules || {}).length;
@@ -185,6 +455,9 @@
       <div class="dos-header">
         <span class="dos-header-target">${escapeHtml(report.input || "—")}</span>
         <span class="dos-header-meta">${modCount} modules · ${report.finishedMs} ms</span>
+      </div>
+      <div class="dos-search-wrap">
+        <input class="dos-grid-search" id="dos-grid-search" placeholder="🔍  Filter cards…" type="text" autocomplete="off">
       </div>`;
 
     // ── card grid ─────────────────────────────────────────────────────────────
@@ -196,28 +469,51 @@
           wide: false,
         };
         const hasErr = data && data.error;
-        const cardCls = `dos-card${meta.wide ? " dos-card-wide" : ""}${hasErr ? " dos-card-err" : ""}`;
-
+        const cardCls = `dos-card dos-card-click${hasErr ? " dos-card-err" : ""}`;
+        const extLink = meta.favicon ? `https://${meta.favicon}` : "#";
         return `
-        <div class="${cardCls}">
+        <div class="${cardCls}" data-mod="${escapeHtml(mod)}" data-search="${escapeHtml((meta.title + " " + mod).toLowerCase())}">
           <div class="dos-card-head">
             <img class="dos-card-favicon" src="https://www.google.com/s2/favicons?domain=${meta.favicon}&sz=24" onerror="this.style.display='none'" alt="">
-            <span class="dos-card-title">${meta.title}</span>
+            <span class="dos-card-title">${escapeHtml(meta.title)}</span>
           </div>
-          <div class="dos-card-body" id="dcb-${mod}">
-            ${renderCardBody(mod, data)}
+          <div class="dos-card-preview">
+            ${renderCardPreview(mod, data)}
+          </div>
+          <div class="dos-card-foot">
+            <a class="dos-card-foot-btn" href="${escapeHtml(extLink)}" target="_blank" title="Open service" onclick="event.stopPropagation()">↗</a>
+            <button class="dos-card-foot-btn dos-card-foot-expand" title="Full report">⤢</button>
           </div>
         </div>`;
       })
       .join("");
 
-    dosOut.innerHTML = header + `<div class="dos-grid">${cards}</div>`;
+    dosOut.innerHTML =
+      header + `<div class="dos-grid" id="dos-grid-main">${cards}</div>`;
 
-    // ── wire WMN pagination + live probing ────────────────────────────────────
-    const wmnCont = dosOut.querySelector(".wmn-dossier-container");
-    if (wmnCont && report.modules && report.modules.username) {
-      buildWMNPage(wmnCont, report.modules.username || [], 0, new Map());
-      startWMNProbe(report.input, wmnCont);
+    // ── wire card clicks → modal ──────────────────────────────────────────────
+    dosOut.querySelectorAll(".dos-card-click").forEach((card) => {
+      const mod = card.dataset.mod;
+      const data = report.modules[mod];
+      const meta = MOD_META[mod] || { favicon: "", title: mod };
+      card.addEventListener("click", () =>
+        showModuleModal(mod, data, meta.title, meta.favicon, report.input),
+      );
+    });
+
+    // ── wire grid search filter ───────────────────────────────────────────────
+    const searchInput = document.getElementById("dos-grid-search");
+    if (searchInput) {
+      searchInput.addEventListener("input", () => {
+        const q = searchInput.value.toLowerCase().trim();
+        dosOut.querySelectorAll(".dos-card-click").forEach((card) => {
+          const match =
+            !q ||
+            card.dataset.search.includes(q) ||
+            card.textContent.toLowerCase().includes(q);
+          card.style.display = match ? "" : "none";
+        });
+      });
     }
   }
 

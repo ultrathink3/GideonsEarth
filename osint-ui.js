@@ -160,31 +160,20 @@
 
   // ── module meta: icon, title, accent colour, full-width flag ──────────────
   const MOD_META = {
-    geoip: { icon: "🌐", title: "GEO-IP", color: "#12ffc6", wide: false },
-    shodan: { icon: "🔍", title: "SHODAN", color: "#ff6b35", wide: false },
-    bgp: { icon: "📡", title: "BGP / ASN", color: "#ffb020", wide: false },
-    dns: { icon: "🧬", title: "DNS", color: "#12ffc6", wide: false },
-    certs: {
-      icon: "🔒",
-      title: "CERT TRANSPARENCY",
-      color: "#a78bfa",
-      wide: true,
-    },
-    rdap: { icon: "📋", title: "RDAP / WHOIS", color: "#a78bfa", wide: false },
-    urlscan: { icon: "🔎", title: "URLSCAN", color: "#38bdf8", wide: false },
-    wayback: { icon: "⏮", title: "WAYBACK", color: "#fb923c", wide: false },
-    email: { icon: "✉️", title: "EMAIL", color: "#f472b6", wide: false },
-    username: {
-      icon: "👤",
-      title: "WHATSMYNAME",
-      color: "#a3e635",
-      wide: true,
-    },
-    github: { icon: "🐙", title: "GITHUB", color: "#e2e8f0", wide: true },
+    geoip: { favicon: "ipinfo.io", title: "GEO-IP", wide: false },
+    shodan: { favicon: "shodan.io", title: "Shodan", wide: false },
+    bgp: { favicon: "bgpview.io", title: "BGP / ASN", wide: false },
+    dns: { favicon: "cloudflare-dns.com", title: "DNS", wide: false },
+    certs: { favicon: "crt.sh", title: "Cert Transparency", wide: true },
+    rdap: { favicon: "rdap.org", title: "RDAP / WHOIS", wide: false },
+    urlscan: { favicon: "urlscan.io", title: "URLScan", wide: false },
+    wayback: { favicon: "archive.org", title: "Wayback Machine", wide: false },
+    email: { favicon: "gravatar.com", title: "Email", wide: false },
+    username: { favicon: "whatsmyname.app", title: "WhatsMyName", wide: true },
+    github: { favicon: "github.com", title: "GitHub", wide: true },
     hibp: {
-      icon: "🚨",
-      title: "HAVE I BEEN PWNED",
-      color: "#ff2e6e",
+      favicon: "haveibeenpwned.com",
+      title: "HaveIBeenPwned",
       wide: true,
     },
   };
@@ -202,19 +191,17 @@
     const cards = Object.entries(report.modules || {})
       .map(([mod, data]) => {
         const meta = MOD_META[mod] || {
-          icon: "⚙️",
+          favicon: "",
           title: mod.toUpperCase(),
-          color: "#12ffc6",
           wide: false,
         };
         const hasErr = data && data.error;
         const cardCls = `dos-card${meta.wide ? " dos-card-wide" : ""}${hasErr ? " dos-card-err" : ""}`;
-        const accentStyle = `--card-accent:${meta.color}`;
 
         return `
-        <div class="${cardCls}" style="${accentStyle}">
+        <div class="${cardCls}">
           <div class="dos-card-head">
-            <span class="dos-card-icon">${meta.icon}</span>
+            <img class="dos-card-favicon" src="https://www.google.com/s2/favicons?domain=${meta.favicon}&sz=24" onerror="this.style.display='none'" alt="">
             <span class="dos-card-title">${meta.title}</span>
           </div>
           <div class="dos-card-body" id="dcb-${mod}">

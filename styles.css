@@ -1689,10 +1689,66 @@ body.walk-mode .recon-panel {
     color: rgba(255, 255, 255, 0.9);
 }
 
+/* URLScan rows */
 .dos-url-row {
     display: flex;
     flex-direction: column;
     margin: 5px 0;
+}
+
+/* ── DNS RECORD BLOCKS ─────────────────────────────────────────────────── */
+
+.dns-record-block {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.dns-record-block:last-child {
+    border-bottom: none;
+}
+
+.dns-record-type {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+    min-width: 40px;
+    flex-shrink: 0;
+    padding-top: 2px;
+}
+
+.dns-record-vals {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+}
+
+.dns-record-val {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 500;
+    word-break: break-all;
+    line-height: 1.4;
+}
+
+/* inside modal */
+.dos-modal-body .dns-record-block {
+    padding: 6px 0;
+}
+
+.dos-modal-body .dns-record-type {
+    min-width: 52px;
+    font-size: 10px;
+}
+
+.dos-modal-body .dns-record-val {
+    font-size: 12px;
 }
 
 /* ── WMN CARD GRID ─────────────────────────────────────────────────────── */

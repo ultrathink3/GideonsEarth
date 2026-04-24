@@ -248,22 +248,18 @@
         ].join("");
         break;
       case "dns": {
-        const aRecs = (d.A || []).map((r) => r.data).join(", ");
-        const mxRecs = (d.MX || []).map((r) => r.data).join(", ");
+        const aRec  = (d.A    || [])[0]?.data || null;
+        const mxRec = (d.MX   || [])[0]?.data?.replace(/^\d+\s+/, "") || null;
+        const nsRec = (d.NS   || [])[0]?.data || null;
+        const spf   = (d.SPF  || d.TXT || []).map(r => r.data).find(v => v?.includes("v=spf1"));
+        const dmarc = (d.DMARC || []).map(r => r.data).find(v => v?.includes("v=DMARC1"));
         rows = [
-          iRow("A", aRecs || null),
-          iRow("MX", mxRecs || null),
-          iRow(
-            "NS",
-            (d.NS || [])
-              .map((r) => r.data)
-              .slice(0, 2)
-              .join(", ") || null,
-          ),
-          iRow(
-            "TXT",
-            (d.TXT || []).length ? `${(d.TXT || []).length} records` : null,
-          ),
+          iRow("A",     aRec),
+          iRow("MX",    mxRec),
+          iRow("NS",    nsRec),
+          iRow("SPF",   spf   ? "✓ configured" : null),
+          iRow("DMARC", dmarc ? `p=${(dmarc.match(/p=(\w+)/)||[])[1] || "set"}` : null),
+          iRow("Types", Object.entries(d).filter(([,v]) => Array.isArray(v) && v.length).map(([k]) => k).join(" · ")),
         ].join("");
         break;
       }
@@ -495,14 +491,42 @@
         ].join("");
 
       case "dns": {
-        const rows = Object.entries(d)
-          .filter(([, v]) => Array.isArray(v) && v.length)
-          .map(([type, recs]) =>
-            dRow(
-              type,
-              recs.map((r) => escapeHtml(String(r.data || ""))).join(" · "),
-            ),
-          );
+        // Priority order for display
+        const ORDER = ["A", "AAAA", "MX", "NS", "TXT", "SPF", "DMARC", "CAA", "SOA"];
+        const all = Object.entries(d).filter(([, v]) => Array.isArray(v) && v.length);
+        const sorted = [
+          ...ORDER.map(t => all.find(([k]) => k === t)).filter(Boolean),
+          ...all.filter(([k]) => !ORDER.includes(k)),
+        ];
+
+        function cleanDnsVal(type, raw) {
+          const s = String(raw || "").trim();
+          // Skip raw hex CAA
+          if (type === "CAA" && s.startsWith("\\#")) return null;
+          // Strip outer quotes from TXT/SPF/DMARC
+          if (["TXT","SPF","DMARC"].includes(type)) return s.replace(/^"|"$/g, "");
+          // Truncate long IPv6
+          if (type === "AAAA" && s.length > 20) return s.slice(0, 20) + "…";
+          // MX: strip priority number prefix for cleaner look
+          if (type === "MX") return s.replace(/^\d+\s+/, "");
+          // SOA: shorten
+          if (type === "SOA") return s.split(" ").slice(0, 3).join(" ");
+          return s;
+        }
+
+        const rows = sorted.map(([type, recs]) => {
+          const vals = recs
+            .map(r => cleanDnsVal(type, r.data))
+            .filter(v => v != null && v !== "");
+          if (!vals.length) return "";
+          return `<div class="dns-record-block">
+            <span class="dns-record-type">${escapeHtml(type)}</span>
+            <div class="dns-record-vals">${vals.map(v =>
+              `<span class="dns-record-val">${escapeHtml(v)}</span>`
+            ).join("")}</div>
+          </div>`;
+        }).filter(Boolean);
+
         return rows.join("") || dRow("STATUS", "no records");
       }
 

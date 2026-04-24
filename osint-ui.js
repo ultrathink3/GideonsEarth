@@ -13,40 +13,100 @@
   const $ = (id) => document.getElementById(id);
   const feed = window.feed || ((k, m) => console.log(`[${k}] ${m}`));
 
-  // ---------- WMN PAGINATION STATE ----------
+  // ---------- WMN PAGINATION + LIVE PROBE STATE ----------
   const WMN_PER_PAGE = 50;
 
-  function buildWMNPage(container, sites, page) {
+  // statuses: Map<siteName, 'found'|'not_found'|'pending'>
+  function buildWMNPage(container, sites, page, statuses) {
     if (!container) return;
+    statuses = statuses || new Map();
     const total = sites.length;
     const totalPages = Math.ceil(total / WMN_PER_PAGE) || 1;
     page = Math.max(0, Math.min(page, totalPages - 1));
     const start = page * WMN_PER_PAGE;
     const slice = sites.slice(start, start + WMN_PER_PAGE);
 
+    const probed = [...statuses.values()].filter((v) => v !== "pending").length;
+    const found = [...statuses.values()].filter((v) => v === "found").length;
+    const probeBar =
+      statuses.size > 0
+        ? `<div class="wmn-probe-status">
+           <span class="wmn-probe-found">● ${found} found</span>
+           &nbsp;·&nbsp;
+           <span class="wmn-probe-scanned">${probed} / ${total} probed</span>
+           ${probed < total ? ' &nbsp;<span class="wmn-probe-spinner">↻</span>' : ""}
+         </div>`
+        : "";
+
     const links = slice
-      .map(
-        (s) =>
-          `<a class="user-site" href="${escapeHtml(s.url)}" target="_blank" title="${escapeHtml(s.category || "")}">${escapeHtml(s.name)}</a>`,
-      )
+      .map((s) => {
+        const st = statuses.get(s.name);
+        const cls =
+          st === "found"
+            ? "user-site wmn-found"
+            : st === "not_found"
+              ? "user-site wmn-not-found"
+              : "user-site wmn-pending";
+        return `<a class="${cls}" href="${escapeHtml(s.url)}" target="_blank" title="${escapeHtml(s.category || "")}">${escapeHtml(s.name)}</a>`;
+      })
       .join(" ");
 
     const pageBar =
       totalPages > 1
-        ? `
-            <div class="wmn-pagebar">
+        ? `<div class="wmn-pagebar">
                 <button class="btn-ghost wmn-prev" ${page === 0 ? "disabled" : ""}>◀ PREV</button>
                 <span class="wmn-pageinfo">Page ${page + 1} / ${totalPages} &nbsp;·&nbsp; ${start + 1}–${Math.min(start + WMN_PER_PAGE, total)} of ${total} sites</span>
                 <button class="btn-ghost wmn-next" ${page >= totalPages - 1 ? "disabled" : ""}>NEXT ▶</button>
             </div>`
         : `<div class="wmn-pageinfo">${total} sites</div>`;
 
-    container.innerHTML = `<div class="wmn-links">${links}</div>${pageBar}`;
+    container.innerHTML = `${probeBar}<div class="wmn-links">${links}</div>${pageBar}`;
 
     const prev = container.querySelector(".wmn-prev");
     const next = container.querySelector(".wmn-next");
-    if (prev) prev.onclick = () => buildWMNPage(container, sites, page - 1);
-    if (next) next.onclick = () => buildWMNPage(container, sites, page + 1);
+    if (prev)
+      prev.onclick = () => buildWMNPage(container, sites, page - 1, statuses);
+    if (next)
+      next.onclick = () => buildWMNPage(container, sites, page + 1, statuses);
+
+    // store current page on the container so probes can re-render correctly
+    container._wmnPage = page;
+    container._wmnSites = sites;
+    container._wmnStatuses = statuses;
+  }
+
+  // Fire background probes and update badges live as results arrive
+  function startWMNProbe(username, container) {
+    if (!container) return;
+    const sites = container._wmnSites || [];
+    const statuses = container._wmnStatuses || new Map();
+
+    // mark all as pending first
+    sites.forEach((s) => {
+      if (!statuses.has(s.name)) statuses.set(s.name, "pending");
+    });
+
+    let renderTimer = null;
+    function scheduleRender() {
+      if (renderTimer) return;
+      renderTimer = setTimeout(() => {
+        renderTimer = null;
+        buildWMNPage(
+          container,
+          container._wmnSites,
+          container._wmnPage || 0,
+          statuses,
+        );
+      }, 120); // debounce — batch re-renders every 120 ms
+    }
+
+    GI.usernameProbe(username, (hit) => {
+      statuses.set(
+        hit.site,
+        hit.status === "reachable" ? "found" : "not_found",
+      );
+      scheduleRender();
+    });
   }
 
   // ---------- DOSSIER ----------
@@ -112,10 +172,11 @@
             </details>`);
     }
     dosOut.innerHTML = parts.join("");
-    // Wire up WMN pagination inside dossier
+    // Wire up WMN pagination + live probing inside dossier
     const wmnCont = dosOut.querySelector(".wmn-dossier-container");
     if (wmnCont && report.modules && report.modules.username) {
-      buildWMNPage(wmnCont, report.modules.username || [], 0);
+      buildWMNPage(wmnCont, report.modules.username || [], 0, new Map());
+      startWMNProbe(report.input, wmnCont);
     }
   }
 
@@ -382,8 +443,11 @@
     userOut.innerHTML = `
       <details open><summary><span class="k">GITHUB</span> <span class="v">${gh.user ? "@" + gh.user.login : "not found"}</span></summary>${renderModule("github", gh)}</details>
       <details open><summary><span class="k">WHATSMYNAME</span> <span class="v">${sites.length} sites</span></summary><div class="wmn-user-container"></div></details>`;
-    buildWMNPage(userOut.querySelector(".wmn-user-container"), sites, 0);
-    feed("ok", `USERNAME :: ${u} → ${sites.length} sites`);
+    const wmnCont = userOut.querySelector(".wmn-user-container");
+    buildWMNPage(wmnCont, sites, 0, new Map());
+    feed("ok", `USERNAME :: ${u} → ${sites.length} sites — probing…`);
+    // kick off live probes — badges go green as accounts are confirmed
+    startWMNProbe(u, wmnCont);
   }
   $("user-go") && $("user-go").addEventListener("click", runUser);
   userIn &&

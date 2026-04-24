@@ -14,74 +14,97 @@
   const feed = window.feed || ((k, m) => console.log(`[${k}] ${m}`));
 
   // ---------- WMN PAGINATION + LIVE PROBE STATE ----------
-  const WMN_PER_PAGE = 50;
+  // ── WMN CARD GRID ────────────────────────────────────────────────────────
 
-  // statuses: Map<siteName, 'found'|'not_found'|'pending'>
-  function buildWMNPage(container, sites, page, statuses) {
-    if (!container) return;
-    statuses = statuses || new Map();
-    const total = sites.length;
-    const totalPages = Math.ceil(total / WMN_PER_PAGE) || 1;
-    page = Math.max(0, Math.min(page, totalPages - 1));
-    const start = page * WMN_PER_PAGE;
-    const slice = sites.slice(start, start + WMN_PER_PAGE);
-
-    const probed = [...statuses.values()].filter((v) => v !== "pending").length;
-    const found = [...statuses.values()].filter((v) => v === "found").length;
-    const probeBar =
-      statuses.size > 0
-        ? `<div class="wmn-probe-status">
-           <span class="wmn-probe-found">● ${found} found</span>
-           &nbsp;·&nbsp;
-           <span class="wmn-probe-scanned">${probed} / ${total} probed</span>
-           ${probed < total ? ' &nbsp;<span class="wmn-probe-spinner">↻</span>' : ""}
-         </div>`
-        : "";
-
-    const links = slice
-      .map((s) => {
-        const st = statuses.get(s.name);
-        const cls =
-          st === "found"
-            ? "user-site wmn-found"
-            : st === "not_found"
-              ? "user-site wmn-not-found"
-              : "user-site wmn-pending";
-        return `<a class="${cls}" href="${escapeHtml(s.url)}" target="_blank" title="${escapeHtml(s.category || "")}">${escapeHtml(s.name)}</a>`;
-      })
-      .join(" ");
-
-    const pageBar =
-      totalPages > 1
-        ? `<div class="wmn-pagebar">
-                <button class="btn-ghost wmn-prev" ${page === 0 ? "disabled" : ""}>◀ PREV</button>
-                <span class="wmn-pageinfo">Page ${page + 1} / ${totalPages} &nbsp;·&nbsp; ${start + 1}–${Math.min(start + WMN_PER_PAGE, total)} of ${total} sites</span>
-                <button class="btn-ghost wmn-next" ${page >= totalPages - 1 ? "disabled" : ""}>NEXT ▶</button>
-            </div>`
-        : `<div class="wmn-pageinfo">${total} sites</div>`;
-
-    container.innerHTML = `${probeBar}<div class="wmn-links">${links}</div>${pageBar}`;
-
-    const prev = container.querySelector(".wmn-prev");
-    const next = container.querySelector(".wmn-next");
-    if (prev)
-      prev.onclick = () => buildWMNPage(container, sites, page - 1, statuses);
-    if (next)
-      next.onclick = () => buildWMNPage(container, sites, page + 1, statuses);
-
-    // store current page on the container so probes can re-render correctly
-    container._wmnPage = page;
-    container._wmnSites = sites;
-    container._wmnStatuses = statuses;
+  function siteDomain(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ""); }
+    catch { return ""; }
   }
 
-  // Fire background probes and update badges live as results arrive
+  function buildWMNCards(container, sites, statuses, username) {
+    if (!container) return;
+    statuses = statuses || new Map();
+    container._wmnSites = sites;
+    container._wmnStatuses = statuses;
+    container._wmnUsername = username || container._wmnUsername || "";
+
+    const total = sites.length;
+    const found = [...statuses.values()].filter((v) => v === "found").length;
+    const probed = [...statuses.values()].filter((v) => v !== "pending").length;
+    const searchVal = container.querySelector(".wmn-card-search")?.value || "";
+
+    const cards = sites
+      .map((s) => {
+        const st = statuses.get(s.name);
+        const domain = siteDomain(s.url);
+        const favicon = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=24`;
+        const cardCls =
+          st === "found"
+            ? "dos-card wmn-site-card wmn-card-found"
+            : st === "not_found"
+              ? "dos-card wmn-site-card wmn-card-not-found"
+              : "dos-card wmn-site-card wmn-card-pending";
+        const hidden =
+          searchVal && !s.name.toLowerCase().includes(searchVal.toLowerCase())
+            ? ' style="display:none"'
+            : "";
+        const statusLabel =
+          st === "found"
+            ? "✓ Found"
+            : st === "not_found"
+              ? "✗ Not found"
+              : "⟳ Probing…";
+        return `
+          <div class="${cardCls}"${hidden} data-site="${escapeHtml(s.name)}">
+            <div class="dos-card-head">
+              <img class="dos-card-favicon" src="${favicon}" onerror="this.style.display='none'" alt="">
+              <span class="dos-card-title">${escapeHtml(s.name)}</span>
+            </div>
+            <div class="dos-card-preview">
+              <div class="dos-preview-rows">
+                ${iRow("Username", container._wmnUsername)}
+                ${iRow("Category", s.category)}
+                ${iRow("Status", statusLabel)}
+              </div>
+            </div>
+            <div class="dos-card-foot">
+              <a class="dos-card-foot-btn" href="${escapeHtml(s.url)}" target="_blank" title="Open profile" onclick="event.stopPropagation()">↗</a>
+              <span class="dos-card-foot-btn wmn-card-domain">${escapeHtml(domain)}</span>
+            </div>
+          </div>`;
+      })
+      .join("");
+
+    container.innerHTML = `
+      <div class="wmn-card-toolbar">
+        <input class="wmn-card-search" placeholder="🔍  Search ${total} sites…" type="text" autocomplete="off" value="${escapeHtml(searchVal)}">
+        <div class="wmn-probe-status">
+          <span class="wmn-probe-found">● ${found} found</span>
+          &nbsp;·&nbsp;
+          <span class="wmn-probe-scanned">${probed} / ${total}</span>
+          ${probed < total ? '<span class="wmn-probe-spinner">↻</span>' : ""}
+        </div>
+      </div>
+      <div class="wmn-cards-grid">${cards}</div>`;
+
+    const inp = container.querySelector(".wmn-card-search");
+    if (inp) {
+      inp.focus();
+      inp.addEventListener("input", () => {
+        const q = inp.value.toLowerCase().trim();
+        container.querySelectorAll(".wmn-site-card").forEach((c) => {
+          const name = c.dataset.site?.toLowerCase() || "";
+          c.style.display = !q || name.includes(q) ? "" : "none";
+        });
+      });
+    }
+  }
+
+  // Fire background probes and update cards live
   function startWMNProbe(username, container) {
     if (!container) return;
     const sites = container._wmnSites || [];
     const statuses = container._wmnStatuses || new Map();
-
-    // mark all as pending first
     sites.forEach((s) => {
       if (!statuses.has(s.name)) statuses.set(s.name, "pending");
     });
@@ -91,20 +114,12 @@
       if (renderTimer) return;
       renderTimer = setTimeout(() => {
         renderTimer = null;
-        buildWMNPage(
-          container,
-          container._wmnSites,
-          container._wmnPage || 0,
-          statuses,
-        );
-      }, 120); // debounce — batch re-renders every 120 ms
+        buildWMNCards(container, container._wmnSites, statuses, container._wmnUsername);
+      }, 150);
     }
 
     GI.usernameProbe(username, (hit) => {
-      statuses.set(
-        hit.site,
-        hit.status === "reachable" ? "found" : "not_found",
-      );
+      statuses.set(hit.site, hit.status === "reachable" ? "found" : "not_found");
       scheduleRender();
     });
   }
@@ -355,97 +370,14 @@
       </div>`;
     document.body.appendChild(ov);
     ov.querySelector(".dos-modal-close").onclick = () => ov.remove();
-    ov.addEventListener("click", (e) => {
-      if (e.target === ov) ov.remove();
-    });
+    ov.addEventListener("click", (e) => { if (e.target === ov) ov.remove(); });
 
     if (mod === "username") {
       const sites = Array.isArray(data) ? data : [];
       const wmn = ov.querySelector(".dos-modal-wmn");
-      buildWMNSearch(wmn, sites, new Map());
-      startWMNProbeModal(input || "", wmn);
+      buildWMNCards(wmn, sites, new Map(), input || "");
+      startWMNProbe(input || "", wmn);
     }
-  }
-
-  // ── WMN search modal (all sites, no pagination, real-time filter) ─────────
-  function buildWMNSearch(container, sites, statuses) {
-    if (!container) return;
-    statuses = statuses || new Map();
-    const found = [...statuses.values()].filter((v) => v === "found").length;
-    const probed = [...statuses.values()].filter((v) => v !== "pending").length;
-    const total = sites.length;
-
-    container._wmnSites = sites;
-    container._wmnStatuses = statuses;
-
-    const searchVal = container.querySelector(".wmn-search-input")?.value || "";
-
-    container.innerHTML = `
-      <div class="wmn-search-bar">
-        <input class="wmn-search-input" placeholder="Search ${total} sites…" type="text" autocomplete="off" value="${escapeHtml(searchVal)}">
-        <div class="wmn-probe-status">
-          <span class="wmn-probe-found">● ${found} found</span>
-          &nbsp;·&nbsp;
-          <span class="wmn-probe-scanned">${probed} / ${total} probed</span>
-          ${probed < total ? '<span class="wmn-probe-spinner">↻</span>' : ""}
-        </div>
-      </div>
-      <div class="wmn-search-links">
-        ${sites
-          .map((s) => {
-            const st = statuses.get(s.name);
-            const cls =
-              st === "found"
-                ? "user-site wmn-found"
-                : st === "not_found"
-                  ? "user-site wmn-not-found"
-                  : "user-site wmn-pending";
-            const hide =
-              searchVal &&
-              !s.name.toLowerCase().includes(searchVal.toLowerCase())
-                ? ' style="display:none"'
-                : "";
-            return `<a class="${cls}" href="${escapeHtml(s.url)}" target="_blank" title="${escapeHtml(s.category || "")}"${hide}>${escapeHtml(s.name)}</a>`;
-          })
-          .join(" ")}
-      </div>`;
-
-    const inp = container.querySelector(".wmn-search-input");
-    if (inp) {
-      inp.focus();
-      inp.addEventListener("input", () => {
-        const q = inp.value.toLowerCase().trim();
-        container.querySelectorAll(".user-site").forEach((a) => {
-          a.style.display =
-            !q || a.textContent.toLowerCase().includes(q) ? "" : "none";
-        });
-      });
-    }
-  }
-
-  function startWMNProbeModal(username, container) {
-    if (!container || !username) return;
-    const sites = container._wmnSites || [];
-    const statuses = container._wmnStatuses || new Map();
-    sites.forEach((s) => {
-      if (!statuses.has(s.name)) statuses.set(s.name, "pending");
-    });
-
-    let renderTimer = null;
-    function scheduleRender() {
-      if (renderTimer) return;
-      renderTimer = setTimeout(() => {
-        renderTimer = null;
-        buildWMNSearch(container, container._wmnSites, statuses);
-      }, 150);
-    }
-    GI.usernameProbe(username, (hit) => {
-      statuses.set(
-        hit.site,
-        hit.status === "reachable" ? "found" : "not_found",
-      );
-      scheduleRender();
-    });
   }
 
   function renderReport(report) {
@@ -514,6 +446,14 @@
           card.style.display = match ? "" : "none";
         });
       });
+    }
+
+    // ── wire WMN card grid into dossier username module ───────────────────────
+    const wmnDos = dosOut.querySelector(".wmn-dossier-container");
+    if (wmnDos && report.modules && report.modules.username) {
+      const sites = report.modules.username || [];
+      buildWMNCards(wmnDos, sites, new Map(), report.input);
+      startWMNProbe(report.input, wmnDos);
     }
   }
 
@@ -631,7 +571,7 @@
       }
 
       case "username":
-        return `<div class="wmn-dossier-container"></div>`;
+        return `<div class="wmn-dossier-container" style="min-height:80px"></div>`;
 
       case "github": {
         if (!d.user) return dRow("STATUS", "user not found");
@@ -962,11 +902,10 @@
     const [sites, gh] = await Promise.all([GI.usernameLinks(u), GI.github(u)]);
     userOut.innerHTML = `
       <details open><summary><span class="k">GITHUB</span> <span class="v">${gh.user ? "@" + gh.user.login : "not found"}</span></summary>${renderModule("github", gh)}</details>
-      <details open><summary><span class="k">WHATSMYNAME</span> <span class="v">${sites.length} sites</span></summary><div class="wmn-user-container"></div></details>`;
+      <details open><summary><span class="k">WHATSMYNAME</span> <span class="v">${sites.length} sites</span></summary><div class="wmn-user-container" style="padding:8px 0"></div></details>`;
     const wmnCont = userOut.querySelector(".wmn-user-container");
-    buildWMNPage(wmnCont, sites, 0, new Map());
+    buildWMNCards(wmnCont, sites, new Map(), u);
     feed("ok", `USERNAME :: ${u} → ${sites.length} sites — probing…`);
-    // kick off live probes — badges go green as accounts are confirmed
     startWMNProbe(u, wmnCont);
   }
   $("user-go") && $("user-go").addEventListener("click", runUser);

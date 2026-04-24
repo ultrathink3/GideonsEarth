@@ -1695,6 +1695,101 @@ body.walk-mode .recon-panel {
     margin: 5px 0;
 }
 
+/* ── WMN CARD GRID ─────────────────────────────────────────────────────── */
+
+.wmn-card-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.wmn-card-search {
+    flex: 1;
+    min-width: 160px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 7px 12px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.wmn-card-search:focus {
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+.wmn-card-search::placeholder {
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.wmn-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 7px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+/* inside modal the grid can be wider */
+.dos-modal-body .wmn-cards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    max-height: 55vh;
+}
+
+.wmn-site-card {
+    cursor: pointer;
+    transition:
+        border-color 0.15s,
+        box-shadow 0.15s,
+        opacity 0.15s;
+}
+
+/* Found — green glow */
+.wmn-card-found {
+    border-color: rgba(18, 255, 198, 0.35) !important;
+    background: rgba(18, 255, 198, 0.06) !important;
+}
+
+.wmn-card-found .dos-card-head {
+    border-bottom-color: rgba(18, 255, 198, 0.15);
+}
+
+.wmn-card-found .dos-card-title {
+    color: rgba(18, 255, 198, 0.95);
+}
+
+.wmn-card-found:hover {
+    border-color: rgba(18, 255, 198, 0.6) !important;
+    box-shadow: 0 0 14px rgba(18, 255, 198, 0.2) !important;
+}
+
+/* Not found — faded */
+.wmn-card-not-found {
+    opacity: 0.25;
+    pointer-events: none;
+}
+
+/* Pending — neutral dim */
+.wmn-card-pending {
+    opacity: 0.55;
+}
+
+.wmn-card-domain {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.2);
+    pointer-events: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100px;
+}
+
 /* ── WMN probe states */
 .user-site.wmn-found {
     background: rgba(18, 255, 198, 0.18);

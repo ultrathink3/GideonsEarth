@@ -1038,7 +1038,262 @@ body.walk-mode .recon-panel {
     box-shadow: 0 0 10px rgba(18, 255, 198, 0.5);
 }
 
-/* WMN probe states */
+/* ── DOSSIER CARD GRID ─────────────────────────────────────────────────── */
+
+.dos-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 2px 10px;
+    border-bottom: 1px solid rgba(18, 255, 198, 0.15);
+    margin-bottom: 10px;
+    gap: 8px;
+}
+
+.dos-header-target {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+    text-shadow: 0 0 8px rgba(18, 255, 198, 0.4);
+    word-break: break-all;
+    flex: 1;
+}
+
+.dos-header-meta {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    white-space: nowrap;
+}
+
+.dos-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding-bottom: 8px;
+}
+
+.dos-card {
+    background: #080d16;
+    border: 1px solid rgba(18, 255, 198, 0.1);
+    border-radius: 8px;
+    padding: 11px 12px 12px;
+    position: relative;
+    min-height: 60px;
+    border-top: 2px solid var(--card-accent, rgba(18, 255, 198, 0.3));
+    transition:
+        border-color 0.15s,
+        box-shadow 0.15s;
+}
+
+.dos-card:hover {
+    border-color: var(--card-accent, rgba(18, 255, 198, 0.4));
+    box-shadow: 0 0 16px rgba(18, 255, 198, 0.06);
+}
+
+.dos-card-wide {
+    grid-column: 1 / -1;
+}
+
+.dos-card-err {
+    border-top-color: var(--danger) !important;
+    opacity: 0.7;
+}
+
+.dos-card-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 9px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dos-card-icon {
+    font-size: 15px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.dos-card-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #fff;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* KV rows inside cards */
+.dos-kv {
+    display: flex;
+    flex-direction: column;
+    margin: 5px 0;
+}
+
+.dos-kv-key {
+    font-size: 9px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: #4a6b63;
+    margin-bottom: 1px;
+    line-height: 1;
+}
+
+.dos-kv-val {
+    font-size: 11px;
+    color: #d4ede7;
+    word-break: break-all;
+    line-height: 1.4;
+    font-weight: 600;
+}
+
+.dos-kv-err {
+    font-size: 10px;
+    color: var(--danger);
+    letter-spacing: 0.5px;
+}
+
+/* Avatar (email gravatar, github profile pic) */
+.dos-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+    object-fit: cover;
+    border: 1px solid rgba(18, 255, 198, 0.25);
+    float: right;
+    margin: 0 0 8px 8px;
+}
+
+/* GitHub profile layout */
+.dos-gh-profile {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-bottom: 6px;
+}
+
+.dos-gh-info {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Repo list */
+.dos-repo-list {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.dos-repo-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 6px;
+    background: rgba(18, 255, 198, 0.03);
+    border-radius: 3px;
+    border: 1px solid rgba(18, 255, 198, 0.07);
+}
+
+.dos-repo-name {
+    font-size: 10px;
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 75%;
+}
+
+.dos-repo-name:hover {
+    text-decoration: underline;
+}
+
+.dos-repo-stars {
+    font-size: 9px;
+    color: var(--amber);
+    flex-shrink: 0;
+}
+
+/* HIBP breach list */
+.dos-breach-list {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.dos-breach-row {
+    display: flex;
+    flex-direction: column;
+    padding: 5px 8px;
+    background: rgba(255, 46, 110, 0.06);
+    border-left: 2px solid rgba(255, 46, 110, 0.5);
+    border-radius: 0 3px 3px 0;
+}
+
+.dos-breach-name {
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.5px;
+}
+
+.dos-breach-meta {
+    font-size: 9px;
+    color: #4a6b63;
+    letter-spacing: 0.5px;
+    margin-top: 1px;
+}
+
+/* Subdomain chips (certs) */
+.dos-sub-label {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #4a6b63;
+    margin: 8px 0 4px;
+}
+
+.dos-subs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.dos-sub-chip {
+    font-size: 9px;
+    padding: 2px 6px;
+    background: rgba(167, 139, 250, 0.08);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    border-radius: 3px;
+    color: #a78bfa;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: 0.1s;
+}
+
+.dos-sub-chip:hover {
+    background: rgba(167, 139, 250, 0.2);
+    color: #fff;
+}
+
+/* URLScan rows */
+.dos-url-row {
+    display: flex;
+    flex-direction: column;
+    margin: 4px 0;
+}
+
+/* ── WMN probe states */
 .user-site.wmn-found {
     background: rgba(18, 255, 198, 0.18);
     border-color: var(--accent);

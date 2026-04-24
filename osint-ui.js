@@ -158,26 +158,263 @@
     }
   }
 
+  // ── module meta: icon, title, accent colour, full-width flag ──────────────
+  const MOD_META = {
+    geoip: { icon: "🌐", title: "GEO-IP", color: "#12ffc6", wide: false },
+    shodan: { icon: "🔍", title: "SHODAN", color: "#ff6b35", wide: false },
+    bgp: { icon: "📡", title: "BGP / ASN", color: "#ffb020", wide: false },
+    dns: { icon: "🧬", title: "DNS", color: "#12ffc6", wide: false },
+    certs: {
+      icon: "🔒",
+      title: "CERT TRANSPARENCY",
+      color: "#a78bfa",
+      wide: true,
+    },
+    rdap: { icon: "📋", title: "RDAP / WHOIS", color: "#a78bfa", wide: false },
+    urlscan: { icon: "🔎", title: "URLSCAN", color: "#38bdf8", wide: false },
+    wayback: { icon: "⏮", title: "WAYBACK", color: "#fb923c", wide: false },
+    email: { icon: "✉️", title: "EMAIL", color: "#f472b6", wide: false },
+    username: {
+      icon: "👤",
+      title: "WHATSMYNAME",
+      color: "#a3e635",
+      wide: true,
+    },
+    github: { icon: "🐙", title: "GITHUB", color: "#e2e8f0", wide: true },
+    hibp: {
+      icon: "🚨",
+      title: "HAVE I BEEN PWNED",
+      color: "#ff2e6e",
+      wide: true,
+    },
+  };
+
   function renderReport(report) {
-    const parts = [];
-    parts.push(
-      `<div class="kv"><span class="k">DURATION</span><span class="v">${report.finishedMs} ms</span></div>`,
-    );
-    for (const [mod, data] of Object.entries(report.modules || {})) {
-      const err = data && data.error;
-      parts.push(`<details class="kv-group" ${err ? "" : "open"}>
-                <summary><span class="k">${mod.toUpperCase()}</span>
-                <span class="v">${err ? "error" : summary(mod, data)}</span></summary>
-                ${renderModule(mod, data)}
-            </details>`);
-    }
-    dosOut.innerHTML = parts.join("");
-    // Wire up WMN pagination + live probing inside dossier
+    // ── header strip ─────────────────────────────────────────────────────────
+    const modCount = Object.keys(report.modules || {}).length;
+    const header = `
+      <div class="dos-header">
+        <span class="dos-header-target">${escapeHtml(report.input || "—")}</span>
+        <span class="dos-header-meta">${modCount} modules · ${report.finishedMs} ms</span>
+      </div>`;
+
+    // ── card grid ─────────────────────────────────────────────────────────────
+    const cards = Object.entries(report.modules || {})
+      .map(([mod, data]) => {
+        const meta = MOD_META[mod] || {
+          icon: "⚙️",
+          title: mod.toUpperCase(),
+          color: "#12ffc6",
+          wide: false,
+        };
+        const hasErr = data && data.error;
+        const cardCls = `dos-card${meta.wide ? " dos-card-wide" : ""}${hasErr ? " dos-card-err" : ""}`;
+        const accentStyle = `--card-accent:${meta.color}`;
+
+        return `
+        <div class="${cardCls}" style="${accentStyle}">
+          <div class="dos-card-head">
+            <span class="dos-card-icon">${meta.icon}</span>
+            <span class="dos-card-title">${meta.title}</span>
+          </div>
+          <div class="dos-card-body" id="dcb-${mod}">
+            ${renderCardBody(mod, data)}
+          </div>
+        </div>`;
+      })
+      .join("");
+
+    dosOut.innerHTML = header + `<div class="dos-grid">${cards}</div>`;
+
+    // ── wire WMN pagination + live probing ────────────────────────────────────
     const wmnCont = dosOut.querySelector(".wmn-dossier-container");
     if (wmnCont && report.modules && report.modules.username) {
       buildWMNPage(wmnCont, report.modules.username || [], 0, new Map());
       startWMNProbe(report.input, wmnCont);
     }
+  }
+
+  // ── card body renderer ────────────────────────────────────────────────────
+  function renderCardBody(mod, d) {
+    if (!d) return dRow("STATUS", "—");
+    if (d.error) return `<div class="dos-kv-err">${escapeHtml(d.error)}</div>`;
+
+    switch (mod) {
+      case "geoip":
+        return [
+          dRow("IP", d.ip),
+          dRow("CITY", d.city),
+          dRow("REGION", d.region),
+          dRow(
+            "COUNTRY",
+            d.country ? `${d.country} (${d.country_code || ""})` : null,
+          ),
+          dRow("ORG", d.org),
+          dRow("ASN", d.asn),
+          dRow("TZ", d.timezone),
+        ].join("");
+
+      case "shodan":
+        return [
+          dRow("IP", d.ip),
+          dRow("PORTS", (d.ports || []).join(", ") || "none"),
+          dRow("CVEs", (d.vulns || []).join(", ") || "none"),
+          dRow("HOSTNAMES", (d.hostnames || []).join(", ") || null),
+          dRow("TAGS", (d.tags || []).join(", ") || null),
+        ].join("");
+
+      case "bgp":
+        return [
+          dRow("ASN", d.asn || d.prefixes?.[0]?.asn?.asn),
+          dRow("NAME", d.name || d.prefixes?.[0]?.asn?.name),
+          dRow("COUNTRY", d.country_code || d.prefixes?.[0]?.asn?.country_code),
+          dRow("PREFIXES", d.prefixes ? d.prefixes.length : "—"),
+        ].join("");
+
+      case "dns": {
+        const rows = Object.entries(d)
+          .filter(([, v]) => Array.isArray(v) && v.length)
+          .map(([type, recs]) =>
+            dRow(
+              type,
+              recs.map((r) => escapeHtml(String(r.data || ""))).join(" · "),
+            ),
+          );
+        return rows.join("") || dRow("STATUS", "no records");
+      }
+
+      case "certs":
+        return [
+          dRow("CT ROWS", d.count),
+          `<div class="dos-sub-label">SUBDOMAINS</div>`,
+          `<div class="dos-subs">${(d.subs || [])
+            .map(
+              (s) =>
+                `<a class="dos-sub-chip" href="https://${s}" target="_blank">${escapeHtml(s)}</a>`,
+            )
+            .join("")}</div>`,
+        ].join("");
+
+      case "rdap":
+        return [
+          dRow("HANDLE", d.handle),
+          dRow("NAME", d.name || d.ldhName),
+          dRow("STATUS", (d.status || []).join(", ")),
+          dRow(
+            "EVENTS",
+            (d.events || [])
+              .map((e) => `${e.eventAction}: ${e.eventDate}`)
+              .join(" · "),
+          ),
+        ].join("");
+
+      case "urlscan":
+        return (
+          (d.results || [])
+            .slice(0, 10)
+            .map(
+              (r) =>
+                `<div class="dos-url-row">
+            <span class="dos-kv-key">SCAN</span>
+            <a class="dos-kv-val" href="https://urlscan.io/result/${r._id}/" target="_blank">${escapeHtml(r._id)}</a>
+          </div>`,
+            )
+            .join("") || dRow("STATUS", "no results")
+        );
+
+      case "wayback": {
+        const s = d.archived_snapshots?.closest;
+        return s
+          ? [
+              dRow("STATUS", s.status),
+              dRow("TIMESTAMP", s.timestamp),
+              dRow("URL", s.url),
+            ].join("")
+          : dRow("STATUS", "no snapshot");
+      }
+
+      case "email": {
+        const gravHtml = d.gravatar_exists
+          ? `<img class="dos-avatar" src="${escapeHtml(d.gravatar_url)}&s=64" alt="gravatar"/>`
+          : "";
+        return [
+          gravHtml,
+          dRow("DOMAIN", d.domain),
+          dRow("GRAVATAR", d.gravatar_exists ? "✓ found" : "✗ none"),
+          dRow("HASH", d.gravatar_hash),
+          dRow("MX", (d.mx || []).map((r) => r.data).join(" · ")),
+          dRow("DISPOSABLE", d.disposable ? "⚠ YES" : "no"),
+        ].join("");
+      }
+
+      case "username":
+        return `<div class="wmn-dossier-container"></div>`;
+
+      case "github": {
+        if (!d.user) return dRow("STATUS", "user not found");
+        const avatar = d.user.avatar_url
+          ? `<img class="dos-avatar" src="${escapeHtml(d.user.avatar_url)}" alt="avatar"/>`
+          : "";
+        const repos = (d.repos || [])
+          .slice(0, 12)
+          .map(
+            (r) =>
+              `<div class="dos-repo-row">
+            <a href="${escapeHtml(r.html_url || "#")}" target="_blank" class="dos-repo-name">${escapeHtml(r.name)}</a>
+            <span class="dos-repo-stars">★ ${r.stargazers_count}</span>
+          </div>`,
+          )
+          .join("");
+        return [
+          `<div class="dos-gh-profile">`,
+          avatar,
+          `<div class="dos-gh-info">`,
+          dRow("LOGIN", d.user.login),
+          dRow("NAME", d.user.name),
+          dRow("BIO", d.user.bio),
+          `</div></div>`,
+          dRow("LOCATION", d.user.location),
+          dRow("COMPANY", d.user.company),
+          dRow("EMAIL", d.user.email),
+          dRow("BLOG", d.user.blog),
+          dRow("TWITTER", d.user.twitter_username),
+          dRow("REPOS", d.user.public_repos),
+          dRow("FOLLOWERS", d.user.followers),
+          dRow("CREATED", d.user.created_at),
+          repos
+            ? `<div class="dos-sub-label">REPOSITORIES</div><div class="dos-repo-list">${repos}</div>`
+            : "",
+        ].join("");
+      }
+
+      case "hibp":
+        if (!(d.breaches || []).length)
+          return dRow("STATUS", "✓ no breaches found");
+        return [
+          dRow("TOTAL BREACHES", d.breaches.length),
+          `<div class="dos-breach-list">`,
+          ...d.breaches.map(
+            (b) =>
+              `<div class="dos-breach-row">
+              <span class="dos-breach-name">${escapeHtml(b.Name)}</span>
+              <span class="dos-breach-meta">${b.BreachDate} · ${Number(b.PwnCount).toLocaleString()} accounts</span>
+            </div>`,
+          ),
+          `</div>`,
+        ].join("");
+
+      default:
+        return `<pre class="kv-json">${escapeHtml(JSON.stringify(d, null, 2))}</pre>`;
+    }
+  }
+
+  // helper — one labelled row: dim key above bold value
+  function dRow(key, val) {
+    if (val == null || val === "" || val === "undefined") return "";
+    return `<div class="dos-kv">
+      <span class="dos-kv-key">${escapeHtml(String(key))}</span>
+      <span class="dos-kv-val">${escapeHtml(String(val))}</span>
+    </div>`;
   }
 
   function summary(mod, d) {

@@ -4,6 +4,7 @@
    to identify location from scenery, landmarks, text, architecture */
 (function(){
 "use strict";
+var PROVIDER_KEYS={gemini:"",openai:"",claude:"","gemini-proxy":"",grok:""};
 var _feed=function(k,m){return window.feed?window.feed(k,m):console.log("["+k+"] "+m);};
 var _pin=function(p){return window.pinTarget?window.pinTarget(p):null;};
 function _fly(lon,lat,alt){alt=alt||600000;var v=window.GideonsEarth&&window.GideonsEarth.viewer;if(!v)return;window.autoRotate=false;v.camera.flyTo({destination:Cesium.Cartesian3.fromDegrees(lon,lat,alt),duration:2.2});}
@@ -163,6 +164,7 @@ function extractJSON(text){
 var _progEl;
 function progress(msg){if(!_progEl)_progEl=document.getElementById("media-ai-progress");if(_progEl){_progEl.style.display="block";_progEl.innerHTML+=(_progEl.innerHTML?"<br>":"")+"&gt; "+msg;}}
 function clearProgress(){if(!_progEl)_progEl=document.getElementById("media-ai-progress");if(_progEl){_progEl.innerHTML="";_progEl.style.display="none";}}
+function refreshGeminiToken(){return Promise.reject(new Error("Gemini OAuth not configured — use a direct API key"));}
 // AI Providers
 function callGemini(frames,key){
     // Auto-detects: API key (AIzaSy...) or OAuth Bearer token (ya29...)

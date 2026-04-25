@@ -680,8 +680,19 @@ GI.dossier = async function dossier(input, { hibpKey } = {}) {
   } else if (cls.kind === "username") {
     add("username", GI.usernameLinks(cls.q));
     add("github", GI.github(cls.q));
+  } else if (cls.kind === "btc") {
+    // BTC wallet — no Spokeo lookup
   } else if (cls.kind === "asn") {
     add("bgp", GI.bgp(cls.q));
+  }
+
+  // Spokeo enrichment — fires on email, phone, name, address, domain
+  const spokeoKey = (typeof localStorage !== "undefined" &&
+    localStorage.getItem("gi:spokeo")) || "";
+  if (spokeoKey &&
+      ["email", "ipv4", "domain", "username", "url"].indexOf(cls.kind) === -1 ||
+      (spokeoKey && ["email"].indexOf(cls.kind) !== -1)) {
+    add("spokeo", GI.spokeo(input, spokeoKey));
   }
 
   await Promise.all(tasks);
@@ -969,6 +980,34 @@ function escapeHtml(s) {
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c],
   );
 }
+
+// ---------- Spokeo API ----------
+GI.spokeo = async function spokeo(query, apiKey) {
+  if (!apiKey) return { error: "No Spokeo API key" };
+  try {
+    // Detect query type and pick correct endpoint
+    let endpoint = "";
+    const cls = GI.classify(query);
+    if (cls.kind === "email") {
+      endpoint = `https://api.spokeo.com/api/v1/search/email?email=${encodeURIComponent(query)}&apiKey=${encodeURIComponent(apiKey)}`;
+    } else if (cls.kind === "ipv4" || /^\+?[\d\s\-().]{7,}$/.test(query)) {
+      endpoint = `https://api.spokeo.com/api/v1/search/phone?phone=${encodeURIComponent(query)}&apiKey=${encodeURIComponent(apiKey)}`;
+    } else if (/^\d+\s+\w/.test(query)) {
+      endpoint = `https://api.spokeo.com/api/v1/search/address?address=${encodeURIComponent(query)}&apiKey=${encodeURIComponent(apiKey)}`;
+    } else {
+      endpoint = `https://api.spokeo.com/api/v1/search/name?name=${encodeURIComponent(query)}&apiKey=${encodeURIComponent(apiKey)}`;
+    }
+    const r = await xfetch(endpoint, {
+      headers: { "Accept": "application/json" },
+    });
+    if (r.status === 401 || r.status === 403) return { error: "Invalid API key" };
+    if (r.status === 402) return { error: "Spokeo quota exceeded" };
+    if (!r.ok) return { error: `Spokeo HTTP ${r.status}` };
+    return await r.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+};
 
 // Signal ready
 console.log(

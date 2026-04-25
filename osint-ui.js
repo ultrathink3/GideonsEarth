@@ -728,6 +728,7 @@
   const dosCls = $("dos-class");
   const dosOut = $("dos-result");
   const hibpKeyEl = $("hibp-key");
+  const spokeoKeyEl = $("spokeo-key");
   let lastReport = null;
 
   // Persist HIBP key
@@ -735,6 +736,14 @@
     hibpKeyEl.value = localStorage.getItem("gi:hibp") || "";
     hibpKeyEl.addEventListener("change", () =>
       localStorage.setItem("gi:hibp", hibpKeyEl.value.trim()),
+    );
+  }
+
+  // Persist Spokeo key
+  if (spokeoKeyEl) {
+    spokeoKeyEl.value = localStorage.getItem("gi:spokeo") || "";
+    spokeoKeyEl.addEventListener("change", () =>
+      localStorage.setItem("gi:spokeo", spokeoKeyEl.value.trim()),
     );
   }
 
@@ -756,6 +765,7 @@
     feed("warn", `DOSSIER :: sweeping ${q}`);
     const report = await GI.dossier(q, {
       hibpKey: (localStorage.getItem("gi:hibp") || "").trim(),
+      spokeoKey: (localStorage.getItem("gi:spokeo") || "").trim(),
     });
     lastReport = report;
     renderReport(report);
@@ -790,6 +800,7 @@
       title: "HaveIBeenPwned",
       wide: true,
     },
+    spokeo: { favicon: "spokeo.com", title: "Spokeo", wide: true },
   };
 
   // ── inline "Label: Value" row helper ─────────────────────────────────────
@@ -1248,6 +1259,44 @@
           ),
           `</div>`,
         ].join("");
+
+      case "spokeo": {
+        // Spokeo returns varying structures — render whatever fields are present
+        const results = d.results || d.persons || d.data || (Array.isArray(d) ? d : null);
+        if (results && results.length) {
+          return results.slice(0, 5).map((p) => {
+            const name = p.name || [p.firstName, p.middleName, p.lastName].filter(Boolean).join(" ");
+            const phones = (p.phones || p.phoneNumbers || []).map(ph => ph.number || ph).filter(Boolean).join(", ");
+            const emails = (p.emails || p.emailAddresses || []).map(e => e.email || e).filter(Boolean).join(", ");
+            const address = p.address || (p.addresses && p.addresses[0] && [p.addresses[0].street, p.addresses[0].city, p.addresses[0].state].filter(Boolean).join(", "));
+            const age = p.age || p.ageRange;
+            const relatives = (p.relatives || []).map(r => r.name || r).filter(Boolean).slice(0, 3).join(", ");
+            return [
+              `<div class="dos-breach-row" style="margin-bottom:8px">`,
+              name ? `<span class="dos-breach-name">${escapeHtml(String(name))}</span>` : "",
+              age ? `<span class="dos-breach-meta">Age: ${escapeHtml(String(age))}</span>` : "",
+              address ? `<span class="dos-breach-meta">📍 ${escapeHtml(String(address))}</span>` : "",
+              phones ? `<span class="dos-breach-meta">📞 ${escapeHtml(phones)}</span>` : "",
+              emails ? `<span class="dos-breach-meta">✉️ ${escapeHtml(emails)}</span>` : "",
+              relatives ? `<span class="dos-breach-meta">👥 ${escapeHtml(relatives)}</span>` : "",
+              `</div>`,
+            ].join("");
+          }).join("") || dRow("STATUS", "No results");
+        }
+        // Flat response (single person)
+        if (d.name || d.firstName || d.phone || d.email) {
+          const name = d.name || [d.firstName, d.lastName].filter(Boolean).join(" ");
+          return [
+            dRow("Name", name),
+            dRow("Age", d.age || d.ageRange),
+            dRow("Address", d.address || (d.addresses && d.addresses[0])),
+            dRow("Phone", (d.phones || d.phoneNumbers || []).map(p => p.number || p).join(", ")),
+            dRow("Email", (d.emails || []).map(e => e.email || e).join(", ")),
+            dRow("Relatives", (d.relatives || []).map(r => r.name || r).slice(0, 3).join(", ")),
+          ].join("");
+        }
+        return `<pre class="kv-json">${escapeHtml(JSON.stringify(d, null, 2).slice(0, 800))}</pre>`;
+      }
 
       default:
         return `<pre class="kv-json">${escapeHtml(JSON.stringify(d, null, 2))}</pre>`;

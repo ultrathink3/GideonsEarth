@@ -40,6 +40,32 @@
     return { name, bio: bio?.slice(0,140), avatar };
   }
 
+  // CORS-aware OG fetch with proxy fallback
+  const CORS_PROXIES = [
+    "https://api.allorigins.win/raw?url=",
+    "https://corsproxy.io/?",
+  ];
+  async function _ogFetch(url) {
+    // Direct first
+    try {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 5000);
+      const r = await fetch(url, { mode: "cors", signal: ctrl.signal });
+      if (r.ok) { const og = extractOGMeta(await r.text()); if (og) return og; }
+    } catch {}
+    // Proxy fallback
+    for (const proxy of CORS_PROXIES) {
+      try {
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(proxy + encodeURIComponent(url), { signal: ctrl.signal });
+        if (r.ok) { const og = extractOGMeta(await r.text()); if (og) return og; }
+        break;
+      } catch {}
+    }
+    return null;
+  }
+
   const PROFILE_APIS = {
 
     // ── DEVELOPER PLATFORMS ──────────────────────────────────────────────────
@@ -259,39 +285,266 @@
                karma: parseInt(d.playcount||0), created: d.registered?.["#text"]?.slice(0,10) };
     },
     "SoundCloud": async (u) => {
-      const r = await fetch(`https://soundcloud.com/${encodeURIComponent(u)}`, {mode:"cors"});
-      if (!r.ok) return null;
-      return extractOGMeta(await r.text());
+      return await _ogFetch(`https://soundcloud.com/${encodeURIComponent(u)}`);
     },
 
     // ── MISC PLATFORMS ───────────────────────────────────────────────────────
-    "Twitch": async (u) => {
-      const r = await fetch(`https://www.twitch.tv/${encodeURIComponent(u)}`, {mode:"cors"});
-      if (r.ok) {
-        const og = extractOGMeta(await r.text());
-        if (og) return og;
-      }
-      return null;
-    },
     "Spotify": async (u) => {
-      const r = await fetch(`https://open.spotify.com/artist/${encodeURIComponent(u)}`, {mode:"cors"});
-      if (!r.ok) return null;
-      return extractOGMeta(await r.text());
+      return await _ogFetch(`https://open.spotify.com/artist/${encodeURIComponent(u)}`);
     },
-    "Medium": async (u) => {
-      const r = await fetch(`https://medium.com/@${encodeURIComponent(u)}`, {mode:"cors"});
-      if (r.ok) return extractOGMeta(await r.text());
-      return null;
+
+    // ── ANIME / ENTERTAINMENT ─────────────────────────────────────────────────
+    "AniList": async (u) => {
+      const r = await fetch("https://graphql.anilist.co", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ query: `{User(name:"${u}"){id name avatar{large}about siteUrl statistics{anime{count}manga{count}}}}` })
+      });
+      if (!r.ok) return null;
+      const d = (await r.json()).data?.User; if (!d) return null;
+      return { name: d.name, bio: d.about?.replace(/<[^>]+>/g,"").slice(0,120),
+               avatar: d.avatar?.large, id: String(d.id),
+               karma: `${d.statistics?.anime?.count||0} anime · ${d.statistics?.manga?.count||0} manga` };
+    },
+    "Kitsu": async (u) => {
+      const r = await fetch(`https://kitsu.io/api/edge/users?filter[name]=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json()).data?.[0]; if (!d) return null;
+      const a = d.attributes;
+      return { name: a.name, bio: a.about?.slice(0,120), avatar: a.avatar?.original,
+               id: d.id, location: a.location, followers: a.followersCount,
+               created: a.createdAt?.slice(0,10) };
+    },
+    "Trakt": async (u) => {
+      const r = await fetch(`https://api.trakt.tv/users/${encodeURIComponent(u)}`, {
+        headers: { "trakt-api-version": "2", "trakt-api-key": "ed3046ea06d033a935f39ab4f2ab8f7880e98e0b6faa3e4ec80e1eef1e5e4f9b" }
+      });
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, bio: d.about?.slice(0,120), avatar: d.images?.avatar?.full,
+               id: d.username, location: d.location, joined: d.joined_at?.slice(0,10) };
+    },
+    "MyAnimeList": async (u) => {
+      const r = await fetch(`https://api.myanimelist.net/v2/users/${encodeURIComponent(u)}?fields=name,picture,location,joined_at,anime_statistics`, {
+        headers: { "X-MAL-CLIENT-ID": "6114d00ca681b7701d1e15fe11a4987e" }
+      });
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, avatar: d.picture, location: d.location,
+               id: d.name, created: d.joined_at?.slice(0,10),
+               karma: `${d.anime_statistics?.num_items||0} anime` };
+    },
+    "Letterboxd": async (u) => {
+      return await _ogFetch(`https://letterboxd.com/${encodeURIComponent(u)}/`);
+    },
+    "Goodreads": async (u) => {
+      return await _ogFetch(`https://www.goodreads.com/${encodeURIComponent(u)}`);
+    },
+
+    // ── SPEEDRUNNING / GAMING ─────────────────────────────────────────────────
+    "Speedrun.com": async (u) => {
+      const r = await fetch(`https://www.speedrun.com/api/v1/users/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json()).data; if (!d) return null;
+      return { name: d.names?.international, id: d.id, avatar: d.assets?.image?.uri,
+               location: d.location?.country?.names?.international, blog: d.weblink };
+    },
+    "Modrinth": async (u) => {
+      const r = await fetch(`https://api.modrinth.com/v2/user/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name || d.username, bio: d.bio?.slice(0,120), id: d.id,
+               created: d.created?.slice(0,10), followers: d.followers_count };
+    },
+    "ArtStation": async (u) => {
+      const r = await fetch(`https://www.artstation.com/users/${encodeURIComponent(u)}/quick.json`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.full_name, bio: d.headline?.slice(0,120), avatar: d.large_avatar_url,
+               id: String(d.id), location: d.city ? `${d.city}, ${d.country}` : d.country,
+               followers: d.followers_count, created: d.created_at?.slice(0,10) };
+    },
+    "itch.io": async (u) => {
+      return await _ogFetch(`https://${encodeURIComponent(u)}.itch.io/`);
+    },
+    "Newgrounds": async (u) => {
+      return await _ogFetch(`https://${encodeURIComponent(u)}.newgrounds.com/`);
+    },
+
+    // ── OPEN SOURCE / PACKAGE MANAGERS ───────────────────────────────────────
+    "Docker Hub": async (u) => {
+      const r = await fetch(`https://hub.docker.com/v2/users/${encodeURIComponent(u)}/`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.full_name || d.username, bio: d.company ? `Company: ${d.company}` : null,
+               id: d.id, location: d.location,
+               followers: d.followers_count, karma: d.num_public_repos,
+               created: d.date_joined?.slice(0,10) };
+    },
+    "RubyGems": async (u) => {
+      const r = await fetch(`https://rubygems.org/api/v1/profiles/${encodeURIComponent(u)}.json`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.display_name, id: d.handle, email: d.email,
+               created: d.created_at?.slice(0,10) };
+    },
+    "PyPI": async (u) => {
+      return await _ogFetch(`https://pypi.org/user/${encodeURIComponent(u)}/`);
+    },
+    "Launchpad": async (u) => {
+      const r = await fetch(`https://api.launchpad.net/1.0/~${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.display_name, bio: d.description?.slice(0,120), id: d.name,
+               karma: d.karma, location: d.time_zone,
+               created: d.date_created?.slice(0,10) };
+    },
+    "Packagist": async (u) => {
+      return await _ogFetch(`https://packagist.org/users/${encodeURIComponent(u)}/`);
+    },
+    "Crates.io": async (u) => {
+      const r = await fetch(`https://crates.io/api/v1/users/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json()).user; if (!d) return null;
+      return { name: d.name, avatar: d.avatar, id: String(d.id), blog: d.url };
+    },
+
+    // ── SOCIAL / CREATIVE ─────────────────────────────────────────────────────
+    "Minds": async (u) => {
+      const r = await fetch(`https://www.minds.com/api/v1/channel/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json()).channel; if (!d) return null;
+      return { name: d.name, bio: d.briefdescription?.slice(0,120),
+               avatar: d.icontime ? `https://www.minds.com/fs/v1/avatars/${d.guid}/large/${d.icontime}` : null,
+               id: d.guid, followers: d.subscribers_count,
+               location: d.city || d.country,
+               created: new Date((d.time_created||0)*1000).toISOString().slice(0,10) };
+    },
+    "Odysee": async (u) => {
+      const r = await fetch("https://api.odysee.com/api/v1/proxy?m=resolve&s=2", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ method: "resolve", params: { urls: [`@${u}`] } })
+      });
+      if (!r.ok) return null;
+      const d = Object.values((await r.json()).result||{})[0]; if (!d) return null;
+      return { name: d.value?.title || u, bio: d.value?.description?.slice(0,120),
+               id: d.claim_id, followers: d.meta?.claims_in_channel };
+    },
+    "Wikipedia": async (u) => {
+      const r = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      if (d.type === "disambiguation") return null;
+      return { name: d.title, bio: d.extract?.slice(0,200), avatar: d.thumbnail?.source, id: String(d.pageid) };
+    },
+    "ProductHunt": async (u) => {
+      return await _ogFetch(`https://www.producthunt.com/@${encodeURIComponent(u)}`);
+    },
+    "About.me": async (u) => {
+      return await _ogFetch(`https://about.me/${encodeURIComponent(u)}`);
+    },
+    "Linktree": async (u) => {
+      return await _ogFetch(`https://linktr.ee/${encodeURIComponent(u)}`);
+    },
+    "Ko-fi": async (u) => {
+      return await _ogFetch(`https://ko-fi.com/${encodeURIComponent(u)}`);
+    },
+    "Wattpad": async (u) => {
+      return await _ogFetch(`https://www.wattpad.com/user/${encodeURIComponent(u)}`);
+    },
+    "Substack": async (u) => {
+      return await _ogFetch(`https://${encodeURIComponent(u)}.substack.com`);
+    },
+    "Tumblr": async (u) => {
+      return await _ogFetch(`https://${encodeURIComponent(u)}.tumblr.com`);
+    },
+    "Pinterest": async (u) => {
+      return await _ogFetch(`https://www.pinterest.com/${encodeURIComponent(u)}/`);
+    },
+    "Quora": async (u) => {
+      return await _ogFetch(`https://www.quora.com/profile/${encodeURIComponent(u)}`);
+    },
+    "Fiverr": async (u) => {
+      return await _ogFetch(`https://www.fiverr.com/${encodeURIComponent(u)}`);
     },
     "Patreon": async (u) => {
-      const r = await fetch(`https://www.patreon.com/${encodeURIComponent(u)}`, {mode:"cors"});
-      if (r.ok) return extractOGMeta(await r.text());
-      return null;
+      return await _ogFetch(`https://www.patreon.com/${encodeURIComponent(u)}`);
+    },
+    "Medium": async (u) => {
+      return await _ogFetch(`https://medium.com/@${encodeURIComponent(u)}`);
+    },
+    "VSCO": async (u) => {
+      return await _ogFetch(`https://vsco.co/${encodeURIComponent(u)}/gallery`);
+    },
+    "Bandcamp": async (u) => {
+      return await _ogFetch(`https://${encodeURIComponent(u)}.bandcamp.com`);
+    },
+    "Flickr": async (u) => {
+      return await _ogFetch(`https://www.flickr.com/photos/${encodeURIComponent(u)}/`);
+    },
+    "Vimeo": async (u) => {
+      return await _ogFetch(`https://vimeo.com/${encodeURIComponent(u)}`);
+    },
+    "Behance": async (u) => {
+      return await _ogFetch(`https://www.behance.net/${encodeURIComponent(u)}`);
+    },
+    "Dribbble": async (u) => {
+      return await _ogFetch(`https://dribbble.com/${encodeURIComponent(u)}`);
+    },
+    "500px": async (u) => {
+      return await _ogFetch(`https://500px.com/p/${encodeURIComponent(u)}`);
+    },
+    "Poshmark": async (u) => {
+      return await _ogFetch(`https://poshmark.com/closet/${encodeURIComponent(u)}`);
+    },
+    "Etsy": async (u) => {
+      return await _ogFetch(`https://www.etsy.com/shop/${encodeURIComponent(u)}`);
+    },
+    "OpenCollective": async (u) => {
+      const r = await fetch(`https://api.opencollective.com/graphql/v2`, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ query: `{account(slug:"${u}"){id name slug description imageUrl location{country}stats{totalAmountReceived{value}}}}` })
+      });
+      if (!r.ok) return null;
+      const d = (await r.json()).data?.account; if (!d) return null;
+      return { name: d.name, bio: d.description?.slice(0,120), avatar: d.imageUrl,
+               id: d.id, location: d.location?.country };
+    },
+    "ORCID": async (u) => {
+      const r = await fetch(`https://pub.orcid.org/v3.0/${encodeURIComponent(u)}/person`, {
+        headers: { "Accept": "application/json" }
+      });
+      if (!r.ok) return null;
+      const d = await r.json();
+      const name = d.name;
+      return { name: [name?.["given-names"]?.value, name?.["family-name"]?.value].filter(Boolean).join(" "),
+               id: u, bio: d.biography?.content?.slice(0,120) };
+    },
+    "Twitch": async (u) => {
+      return await _ogFetch(`https://www.twitch.tv/${encodeURIComponent(u)}`);
     },
     "Kick": async (u) => {
-      const r = await fetch(`https://kick.com/${encodeURIComponent(u)}`, {mode:"cors"});
-      if (r.ok) return extractOGMeta(await r.text());
-      return null;
+      return await _ogFetch(`https://kick.com/${encodeURIComponent(u)}`);
+    },
+    "Instagram": async (u) => {
+      return await _ogFetch(`https://www.instagram.com/${encodeURIComponent(u)}/`);
+    },
+    "TikTok": async (u) => {
+      return await _ogFetch(`https://www.tiktok.com/@${encodeURIComponent(u)}`);
+    },
+    "YouTube": async (u) => {
+      return await _ogFetch(`https://www.youtube.com/@${encodeURIComponent(u)}`);
+    },
+    "Twitter": async (u) => {
+      return await _ogFetch(`https://twitter.com/${encodeURIComponent(u)}`);
+    },
+    "X (Twitter)": async (u) => {
+      return await _ogFetch(`https://x.com/${encodeURIComponent(u)}`);
+    },
+    "Snapchat": async (u) => {
+      return await _ogFetch(`https://www.snapchat.com/add/${encodeURIComponent(u)}`);
+    },
+    "LinkedIn": async (u) => {
+      return await _ogFetch(`https://www.linkedin.com/in/${encodeURIComponent(u)}`);
     },
   };
 
@@ -309,35 +562,9 @@
       } catch {}
     }
 
-    // 2. Direct CORS OG metadata fetch
-    try {
-      const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 6000);
-      const r = await fetch(url, { mode: "cors", signal: ctrl.signal });
-      if (r.ok) {
-        const html = await r.text();
-        const og = extractOGMeta(html);
-        if (og) return og;
-      }
-    } catch {}
-
-    // 3. CORS proxy OG fallback
-    const CORS_PROXIES = [
-      "https://api.allorigins.win/raw?url=",
-      "https://corsproxy.io/?",
-    ];
-    for (const proxy of CORS_PROXIES) {
-      try {
-        const ctrl = new AbortController();
-        setTimeout(() => ctrl.abort(), 8000);
-        const r = await fetch(proxy + encodeURIComponent(url), { signal: ctrl.signal });
-        if (r.ok) {
-          const og = extractOGMeta(await r.text());
-          if (og) return og;
-        }
-        break; // if first proxy worked but no OG, stop
-      } catch {}
-    }
+    // 2. OG metadata fetch with CORS proxy fallback
+    const og = await _ogFetch(url);
+    if (og) return og;
 
     return null;
   }

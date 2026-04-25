@@ -20,87 +20,6 @@
   // For found accounts, try to pull real profile data (name, bio, avatar, stats)
   // using known public APIs or OG metadata fallback.
 
-  const PROFILE_APIS = {
-    "GitHub": async (u) => {
-      const r = await fetch(`https://api.github.com/users/${encodeURIComponent(u)}`);
-      if (!r.ok) return null;
-      const d = await r.json();
-      return { name: d.name, bio: d.bio, avatar: d.avatar_url, id: String(d.id),
-               followers: d.followers, repos: d.public_repos, location: d.location,
-               company: d.company, blog: d.blog, created: d.created_at?.slice(0,10) };
-    },
-    "Reddit": async (u) => {
-      const r = await fetch(`https://www.reddit.com/user/${encodeURIComponent(u)}/about.json`);
-      if (!r.ok) return null;
-      const d = (await r.json()).data;
-      if (!d) return null;
-      return { name: d.name, id: d.id, karma: (d.link_karma||0)+(d.comment_karma||0),
-               created: new Date((d.created_utc||0)*1000).toISOString().slice(0,10),
-               avatar: d.icon_img?.split("?")[0] || null };
-    },
-    "Hacker News": async (u) => {
-      const r = await fetch(`https://hacker-news.firebaseio.com/v1/user/${encodeURIComponent(u)}.json`);
-      if (!r.ok) return null;
-      const d = await r.json();
-      if (!d) return null;
-      return { name: d.id, id: d.id, karma: d.karma,
-               bio: d.about ? d.about.replace(/<[^>]+>/g,"").slice(0,120) : null,
-               created: new Date((d.created||0)*1000).toISOString().slice(0,10) };
-    },
-    "Dev.to": async (u) => {
-      const r = await fetch(`https://dev.to/api/users/by_username?url=${encodeURIComponent(u)}`);
-      if (!r.ok) return null;
-      const d = await r.json();
-      return { name: d.name, bio: d.summary, avatar: d.profile_image,
-               id: String(d.id), location: d.location };
-    },
-    "GitLab": async (u) => {
-      const r = await fetch(`https://gitlab.com/api/v4/users?username=${encodeURIComponent(u)}`);
-      if (!r.ok) return null;
-      const arr = await r.json();
-      const d = arr?.[0]; if (!d) return null;
-      return { name: d.name, bio: d.bio, avatar: d.avatar_url,
-               id: String(d.id), created: d.created_at?.slice(0,10) };
-    },
-    "NPM": async (u) => {
-      const r = await fetch(`https://registry.npmjs.org/-/user/org.couchdb.user:${encodeURIComponent(u)}`);
-      if (!r.ok) return null;
-      const d = await r.json();
-      return { name: d.name, email: d.email, id: d.name };
-    },
-    "Keybase": async (u) => {
-      const r = await fetch(`https://keybase.io/_/api/1.0/user/lookup.json?username=${encodeURIComponent(u)}`);
-      if (!r.ok) return null;
-      const d = (await r.json()).them;
-      if (!d) return null;
-      return { name: d.profile?.full_name, bio: d.profile?.bio,
-               avatar: d.pictures?.primary?.url, id: d.id,
-               location: d.profile?.location };
-    },
-    "Gravatar": async (u) => {
-      // derive md5 from username as email hint — best effort
-      const r = await fetch(`https://en.gravatar.com/${encodeURIComponent(u)}.json`);
-      if (!r.ok) return null;
-      const d = (await r.json()).entry?.[0]; if (!d) return null;
-      return { name: d.displayName, bio: d.aboutMe, avatar: d.thumbnailUrl,
-               id: d.id, location: d.currentLocation };
-    },
-    "PyPI": async (u) => {
-      // PyPI doesn't have a user API but try anyway
-      const r = await fetch(`https://pypi.org/pypi?%3Aaction=user_packages&user=${encodeURIComponent(u)}&output=json`, {mode:"cors"});
-      if (!r.ok) return null;
-      return { name: u };
-    },
-    "Mastodon (mastodon.social)": async (u) => {
-      const r = await fetch(`https://mastodon.social/api/v1/accounts/lookup?acct=${encodeURIComponent(u)}`);
-      if (!r.ok) return null;
-      const d = await r.json();
-      return { name: d.display_name, bio: d.note?.replace(/<[^>]+>/g,"").slice(0,120),
-               avatar: d.avatar, followers: d.followers_count,
-               id: d.id, created: d.created_at?.slice(0,10) };
-    },
-  };
-
   // Extract Open Graph / Twitter Card metadata from HTML text
   function extractOGMeta(html) {
     const get = (props) => {
@@ -121,6 +40,261 @@
     return { name, bio: bio?.slice(0,140), avatar };
   }
 
+  const PROFILE_APIS = {
+
+    // ── DEVELOPER PLATFORMS ──────────────────────────────────────────────────
+    "GitHub": async (u) => {
+      const r = await fetch(`https://api.github.com/users/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, bio: d.bio, avatar: d.avatar_url, id: String(d.id),
+               followers: d.followers, repos: d.public_repos, location: d.location,
+               company: d.company, blog: d.blog, created: d.created_at?.slice(0,10) };
+    },
+    "GitLab": async (u) => {
+      const r = await fetch(`https://gitlab.com/api/v4/users?username=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json())?.[0]; if (!d) return null;
+      return { name: d.name, bio: d.bio, avatar: d.avatar_url, id: String(d.id),
+               location: d.location, created: d.created_at?.slice(0,10) };
+    },
+    "Bitbucket": async (u) => {
+      const r = await fetch(`https://api.bitbucket.org/2.0/users/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.display_name, bio: d.description, avatar: d.links?.avatar?.href,
+               id: d.account_id?.slice(0,16), location: d.location, created: d.created_on?.slice(0,10) };
+    },
+    "Codeberg": async (u) => {
+      const r = await fetch(`https://codeberg.org/api/v1/users/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.full_name || d.login, bio: d.description, avatar: d.avatar_url,
+               id: String(d.id), location: d.location, followers: d.followers_count,
+               repos: d.repos_count, created: d.created?.slice(0,10), blog: d.website };
+    },
+    "NPM": async (u) => {
+      const r = await fetch(`https://registry.npmjs.org/-/user/org.couchdb.user:${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, email: d.email, id: d.name };
+    },
+    "Dev.to": async (u) => {
+      const r = await fetch(`https://dev.to/api/users/by_username?url=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, bio: d.summary, avatar: d.profile_image,
+               id: String(d.id), location: d.location };
+    },
+    "CodeForces": async (u) => {
+      const r = await fetch(`https://codeforces.com/api/user.info?handles=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json()).result?.[0]; if (!d) return null;
+      const av = d.avatar?.startsWith("//") ? "https:" + d.avatar : d.avatar;
+      return { name: (`${d.firstName||""} ${d.lastName||""}`).trim() || d.handle,
+               id: d.handle, avatar: av, karma: d.rating,
+               location: [d.city, d.country].filter(Boolean).join(", ") || null };
+    },
+    "StackOverflow": async (u) => {
+      const r = await fetch(`https://api.stackexchange.com/2.3/users?order=desc&sort=reputation&inname=${encodeURIComponent(u)}&site=stackoverflow`);
+      if (!r.ok) return null;
+      const items = (await r.json()).items;
+      const d = items?.find(i => i.display_name.toLowerCase() === u.toLowerCase()) || items?.[0];
+      if (!d) return null;
+      return { name: d.display_name, avatar: d.profile_image, id: String(d.user_id),
+               karma: d.reputation, location: d.location,
+               created: new Date((d.creation_date||0)*1000).toISOString().slice(0,10) };
+    },
+    "Hacker News": async (u) => {
+      const r = await fetch(`https://hacker-news.firebaseio.com/v1/user/${encodeURIComponent(u)}.json`);
+      if (!r.ok) return null;
+      const d = await r.json(); if (!d) return null;
+      return { name: d.id, id: d.id, karma: d.karma,
+               bio: d.about ? d.about.replace(/<[^>]+>/g,"").slice(0,120) : null,
+               created: new Date((d.created||0)*1000).toISOString().slice(0,10) };
+    },
+    "Keybase": async (u) => {
+      const r = await fetch(`https://keybase.io/_/api/1.0/user/lookup.json?username=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json()).them; if (!d) return null;
+      return { name: d.profile?.full_name, bio: d.profile?.bio,
+               avatar: d.pictures?.primary?.url, id: d.id, location: d.profile?.location };
+    },
+    "HackerRank": async (u) => {
+      const r = await fetch(`https://www.hackerrank.com/rest/hackers/${encodeURIComponent(u)}/profile`);
+      if (!r.ok) return null;
+      const d = (await r.json()).model; if (!d) return null;
+      return { name: d.name, bio: d.short_bio, avatar: d.avatar,
+               id: d.username, followers: d.followers_count, location: d.country };
+    },
+    "LeetCode": async (u) => {
+      const r = await fetch("https://leetcode.com/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: `{matchedUser(username:"${u}"){username profile{realName aboutMe userAvatar countryName company school ranking}}}` })
+      });
+      if (!r.ok) return null;
+      const p = (await r.json()).data?.matchedUser?.profile; if (!p) return null;
+      return { name: p.realName, bio: p.aboutMe, avatar: p.userAvatar,
+               location: p.countryName, company: p.company, id: u, karma: p.ranking };
+    },
+    "Replit": async (u) => {
+      const r = await fetch(`https://replit.com/api/v0/users/search?query=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json()).users?.find(x => x.username?.toLowerCase() === u.toLowerCase());
+      if (!d) return null;
+      return { name: d.name, bio: d.bio, avatar: d.image, id: String(d.id),
+               followers: d.followerCount, location: d.country };
+    },
+
+    // ── GAMING ───────────────────────────────────────────────────────────────
+    "Chess.com": async (u) => {
+      const r = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(u.toLowerCase())}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, id: d.username, avatar: d.avatar, location: d.location,
+               bio: d.title ? `Title: ${d.title}` : null,
+               created: new Date((d.joined||0)*1000).toISOString().slice(0,10),
+               followers: d.followers };
+    },
+    "Lichess": async (u) => {
+      const r = await fetch(`https://lichess.org/api/user/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      const topRating = Object.values(d.perfs||{}).filter(p=>p.games>0).sort((a,b)=>b.rating-a.rating)[0];
+      return { name: d.username, id: d.id, bio: d.profile?.bio,
+               location: [d.profile?.firstName, d.profile?.lastName].filter(Boolean).join(" ") || d.profile?.country,
+               followers: d.nbFollowers, karma: topRating?.rating };
+    },
+    "Roblox": async (u) => {
+      const r1 = await fetch("https://users.roblox.com/v1/usernames/users", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ usernames: [u], excludeBannedUsers: false })
+      });
+      if (!r1.ok) return null;
+      const id = (await r1.json()).data?.[0]?.id; if (!id) return null;
+      const r2 = await fetch(`https://users.roblox.com/v1/users/${id}`);
+      if (!r2.ok) return null;
+      const d = await r2.json();
+      const r3 = await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${id}&size=150x150&format=Png`);
+      const av = r3.ok ? (await r3.json()).data?.[0]?.imageUrl : null;
+      return { name: d.displayName, id: String(d.id), bio: d.description?.slice(0,120),
+               avatar: av, created: d.created?.slice(0,10) };
+    },
+    "Steam": async (u) => {
+      const r = await fetch(`https://steamcommunity.com/id/${encodeURIComponent(u)}/?xml=1`);
+      if (!r.ok) return null;
+      const txt = await r.text();
+      const get = (tag) => txt.match(new RegExp(`<${tag}><!\\[CDATA\\[([^\\]]+)\\]\\]></${tag}>`))?.[1]
+                        || txt.match(new RegExp(`<${tag}>([^<]+)</${tag}>`))?.[1];
+      if (get("privacyState") === "private") return { name: get("steamID"), id: get("steamID64"), bio: "Private profile" };
+      return { name: get("steamID"), id: get("steamID64"), bio: get("summary")?.slice(0,120),
+               avatar: get("avatarFull"), location: get("location"),
+               created: get("memberSince") };
+    },
+    "Duolingo": async (u) => {
+      const r = await fetch(`https://www.duolingo.com/2017-06-30/users?username=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json()).users?.[0]; if (!d) return null;
+      return { name: d.name, id: String(d.id), avatar: d.picture?.replace("//","https://"),
+               bio: `Streak: ${d.streak_length||0} days · XP: ${(d.total_xp||0).toLocaleString()}` };
+    },
+
+    // ── CREATIVE / SOCIAL ────────────────────────────────────────────────────
+    "Reddit": async (u) => {
+      const r = await fetch(`https://www.reddit.com/user/${encodeURIComponent(u)}/about.json`);
+      if (!r.ok) return null;
+      const d = (await r.json()).data; if (!d) return null;
+      return { name: d.name, id: d.id,
+               karma: (d.link_karma||0)+(d.comment_karma||0),
+               avatar: d.icon_img?.split("?")[0] || null,
+               created: new Date((d.created_utc||0)*1000).toISOString().slice(0,10) };
+    },
+    "Mastodon (mastodon.social)": async (u) => {
+      const r = await fetch(`https://mastodon.social/api/v1/accounts/lookup?acct=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.display_name, bio: d.note?.replace(/<[^>]+>/g,"").slice(0,120),
+               avatar: d.avatar, followers: d.followers_count,
+               id: d.id, created: d.created_at?.slice(0,10) };
+    },
+    "Mixcloud": async (u) => {
+      const r = await fetch(`https://api.mixcloud.com/${encodeURIComponent(u)}/`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, bio: d.biog?.slice(0,120), avatar: d.pictures?.large,
+               followers: d.follower_count,
+               location: [d.city, d.country].filter(Boolean).join(", ") || null };
+    },
+    "Dailymotion": async (u) => {
+      const r = await fetch(`https://api.dailymotion.com/user/${encodeURIComponent(u)}?fields=id,username,fullname,description,avatar_720_url,followers_total,country,created_time`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.fullname || d.username, bio: d.description?.slice(0,120),
+               avatar: d.avatar_720_url, followers: d.followers_total,
+               location: d.country, id: d.id,
+               created: d.created_time ? new Date(d.created_time*1000).toISOString().slice(0,10) : null };
+    },
+    "Gravatar": async (u) => {
+      const r = await fetch(`https://en.gravatar.com/${encodeURIComponent(u)}.json`);
+      if (!r.ok) return null;
+      const d = (await r.json()).entry?.[0]; if (!d) return null;
+      return { name: d.displayName, bio: d.aboutMe, avatar: d.thumbnailUrl,
+               id: d.id, location: d.currentLocation };
+    },
+    "WordPress": async (u) => {
+      const r = await fetch(`https://public-api.wordpress.com/rest/v1.1/sites/${encodeURIComponent(u)}.wordpress.com/`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, bio: d.description, id: String(d.ID) };
+    },
+
+    // ── MUSIC ────────────────────────────────────────────────────────────────
+    "Last.fm": async (u) => {
+      const r = await fetch(`https://ws.audioscrobbler.com/2.0/?method=user.getinfo&user=${encodeURIComponent(u)}&api_key=c8571352e63bb9e4aaea2bc5c7ebdb39&format=json`);
+      if (!r.ok) return null;
+      const d = (await r.json()).user; if (!d) return null;
+      return { name: d.realname || d.name, id: d.name, avatar: d.image?.slice(-1)[0]?.["#text"],
+               followers: d.subscriber, location: d.country,
+               karma: parseInt(d.playcount||0), created: d.registered?.["#text"]?.slice(0,10) };
+    },
+    "SoundCloud": async (u) => {
+      const r = await fetch(`https://soundcloud.com/${encodeURIComponent(u)}`, {mode:"cors"});
+      if (!r.ok) return null;
+      return extractOGMeta(await r.text());
+    },
+
+    // ── MISC PLATFORMS ───────────────────────────────────────────────────────
+    "Twitch": async (u) => {
+      const r = await fetch(`https://www.twitch.tv/${encodeURIComponent(u)}`, {mode:"cors"});
+      if (r.ok) {
+        const og = extractOGMeta(await r.text());
+        if (og) return og;
+      }
+      return null;
+    },
+    "Spotify": async (u) => {
+      const r = await fetch(`https://open.spotify.com/artist/${encodeURIComponent(u)}`, {mode:"cors"});
+      if (!r.ok) return null;
+      return extractOGMeta(await r.text());
+    },
+    "Medium": async (u) => {
+      const r = await fetch(`https://medium.com/@${encodeURIComponent(u)}`, {mode:"cors"});
+      if (r.ok) return extractOGMeta(await r.text());
+      return null;
+    },
+    "Patreon": async (u) => {
+      const r = await fetch(`https://www.patreon.com/${encodeURIComponent(u)}`, {mode:"cors"});
+      if (r.ok) return extractOGMeta(await r.text());
+      return null;
+    },
+    "Kick": async (u) => {
+      const r = await fetch(`https://kick.com/${encodeURIComponent(u)}`, {mode:"cors"});
+      if (r.ok) return extractOGMeta(await r.text());
+      return null;
+    },
+  };
+
   // Main enrichment dispatcher — tries API then OG fallback
   async function enrichProfile(username, siteName, url) {
     // 1. Known API
@@ -135,7 +309,7 @@
       } catch {}
     }
 
-    // 2. CORS OG metadata fallback
+    // 2. Direct CORS OG metadata fetch
     try {
       const ctrl = new AbortController();
       setTimeout(() => ctrl.abort(), 6000);
@@ -146,6 +320,24 @@
         if (og) return og;
       }
     } catch {}
+
+    // 3. CORS proxy OG fallback
+    const CORS_PROXIES = [
+      "https://api.allorigins.win/raw?url=",
+      "https://corsproxy.io/?",
+    ];
+    for (const proxy of CORS_PROXIES) {
+      try {
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(proxy + encodeURIComponent(url), { signal: ctrl.signal });
+        if (r.ok) {
+          const og = extractOGMeta(await r.text());
+          if (og) return og;
+        }
+        break; // if first proxy worked but no OG, stop
+      } catch {}
+    }
 
     return null;
   }

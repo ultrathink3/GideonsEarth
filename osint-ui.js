@@ -16,6 +16,142 @@
   // ---------- WMN PAGINATION + LIVE PROBE STATE ----------
   // ── WMN CARD GRID ────────────────────────────────────────────────────────
 
+  // ── PROFILE ENRICHMENT ENGINE ─────────────────────────────────────────────
+  // For found accounts, try to pull real profile data (name, bio, avatar, stats)
+  // using known public APIs or OG metadata fallback.
+
+  const PROFILE_APIS = {
+    "GitHub": async (u) => {
+      const r = await fetch(`https://api.github.com/users/${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, bio: d.bio, avatar: d.avatar_url, id: String(d.id),
+               followers: d.followers, repos: d.public_repos, location: d.location,
+               company: d.company, blog: d.blog, created: d.created_at?.slice(0,10) };
+    },
+    "Reddit": async (u) => {
+      const r = await fetch(`https://www.reddit.com/user/${encodeURIComponent(u)}/about.json`);
+      if (!r.ok) return null;
+      const d = (await r.json()).data;
+      if (!d) return null;
+      return { name: d.name, id: d.id, karma: (d.link_karma||0)+(d.comment_karma||0),
+               created: new Date((d.created_utc||0)*1000).toISOString().slice(0,10),
+               avatar: d.icon_img?.split("?")[0] || null };
+    },
+    "Hacker News": async (u) => {
+      const r = await fetch(`https://hacker-news.firebaseio.com/v1/user/${encodeURIComponent(u)}.json`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      if (!d) return null;
+      return { name: d.id, id: d.id, karma: d.karma,
+               bio: d.about ? d.about.replace(/<[^>]+>/g,"").slice(0,120) : null,
+               created: new Date((d.created||0)*1000).toISOString().slice(0,10) };
+    },
+    "Dev.to": async (u) => {
+      const r = await fetch(`https://dev.to/api/users/by_username?url=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, bio: d.summary, avatar: d.profile_image,
+               id: String(d.id), location: d.location };
+    },
+    "GitLab": async (u) => {
+      const r = await fetch(`https://gitlab.com/api/v4/users?username=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const arr = await r.json();
+      const d = arr?.[0]; if (!d) return null;
+      return { name: d.name, bio: d.bio, avatar: d.avatar_url,
+               id: String(d.id), created: d.created_at?.slice(0,10) };
+    },
+    "NPM": async (u) => {
+      const r = await fetch(`https://registry.npmjs.org/-/user/org.couchdb.user:${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.name, email: d.email, id: d.name };
+    },
+    "Keybase": async (u) => {
+      const r = await fetch(`https://keybase.io/_/api/1.0/user/lookup.json?username=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = (await r.json()).them;
+      if (!d) return null;
+      return { name: d.profile?.full_name, bio: d.profile?.bio,
+               avatar: d.pictures?.primary?.url, id: d.id,
+               location: d.profile?.location };
+    },
+    "Gravatar": async (u) => {
+      // derive md5 from username as email hint — best effort
+      const r = await fetch(`https://en.gravatar.com/${encodeURIComponent(u)}.json`);
+      if (!r.ok) return null;
+      const d = (await r.json()).entry?.[0]; if (!d) return null;
+      return { name: d.displayName, bio: d.aboutMe, avatar: d.thumbnailUrl,
+               id: d.id, location: d.currentLocation };
+    },
+    "PyPI": async (u) => {
+      // PyPI doesn't have a user API but try anyway
+      const r = await fetch(`https://pypi.org/pypi?%3Aaction=user_packages&user=${encodeURIComponent(u)}&output=json`, {mode:"cors"});
+      if (!r.ok) return null;
+      return { name: u };
+    },
+    "Mastodon (mastodon.social)": async (u) => {
+      const r = await fetch(`https://mastodon.social/api/v1/accounts/lookup?acct=${encodeURIComponent(u)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      return { name: d.display_name, bio: d.note?.replace(/<[^>]+>/g,"").slice(0,120),
+               avatar: d.avatar, followers: d.followers_count,
+               id: d.id, created: d.created_at?.slice(0,10) };
+    },
+  };
+
+  // Extract Open Graph / Twitter Card metadata from HTML text
+  function extractOGMeta(html) {
+    const get = (props) => {
+      for (const p of props) {
+        const m = html.match(new RegExp(
+          `<meta[^>]+(?:property|name)=["']${p}["'][^>]+content=["']([^"']{1,300})["']`, "i"
+        )) || html.match(new RegExp(
+          `<meta[^>]+content=["']([^"']{1,300})["'][^>]+(?:property|name)=["']${p}["']`, "i"
+        ));
+        if (m?.[1]) return m[1];
+      }
+      return null;
+    };
+    const name    = get(["og:title","twitter:title"]);
+    const bio     = get(["og:description","twitter:description","description"]);
+    const avatar  = get(["og:image","twitter:image"]);
+    if (!name && !bio && !avatar) return null;
+    return { name, bio: bio?.slice(0,140), avatar };
+  }
+
+  // Main enrichment dispatcher — tries API then OG fallback
+  async function enrichProfile(username, siteName, url) {
+    // 1. Known API
+    const api = PROFILE_APIS[siteName];
+    if (api) {
+      try {
+        const d = await Promise.race([
+          api(username),
+          new Promise((_,rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
+        ]);
+        if (d) return d;
+      } catch {}
+    }
+
+    // 2. CORS OG metadata fallback
+    try {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 6000);
+      const r = await fetch(url, { mode: "cors", signal: ctrl.signal });
+      if (r.ok) {
+        const html = await r.text();
+        const og = extractOGMeta(html);
+        if (og) return og;
+      }
+    } catch {}
+
+    return null;
+  }
+
+  // ── END ENRICHMENT ENGINE ─────────────────────────────────────────────────
+
   function siteDomain(url) {
     try { return new URL(url).hostname.replace(/^www\./, ""); }
     catch { return ""; }
@@ -24,6 +160,8 @@
   function buildWMNCards(container, sites, statuses, username) {
     if (!container) return;
     statuses = statuses || new Map();
+    if (!container._wmnEnriched) container._wmnEnriched = new Map();
+    const enriched = container._wmnEnriched;
     container._wmnSites = sites;
     container._wmnStatuses = statuses;
     container._wmnUsername = username || container._wmnUsername || "";
@@ -54,6 +192,31 @@
             : st === "not_found"
               ? "✗ Not found"
               : "⟳ Probing…";
+
+        // Pull enriched profile data if available
+        const prof = enriched.get(s.name);
+        const avatarHTML = prof?.avatar
+          ? `<img class="dos-card-photo" src="${escapeHtml(prof.avatar)}" alt="" onerror="this.remove()">`
+          : "";
+
+        // Build all available fields
+        const rows = [
+          prof?.name     && prof.name !== container._wmnUsername ? iRow("Name", prof.name) : "",
+          iRow("Username",  container._wmnUsername),
+          prof?.id       ? iRow("ID",        prof.id)       : "",
+          prof?.bio      ? iRow("Bio",        prof.bio.slice(0, 100) + (prof.bio.length > 100 ? "…" : "")) : "",
+          prof?.location ? iRow("Location",   prof.location) : "",
+          prof?.company  ? iRow("Company",    prof.company)  : "",
+          prof?.email    ? iRow("Email",      prof.email)    : "",
+          prof?.blog     ? iRow("Website",    prof.blog)     : "",
+          prof?.followers != null ? iRow("Followers", Number(prof.followers).toLocaleString()) : "",
+          prof?.repos    != null  ? iRow("Repos",     prof.repos)     : "",
+          prof?.karma    != null  ? iRow("Karma",     Number(prof.karma).toLocaleString()) : "",
+          prof?.created  ? iRow("Joined",     prof.created)  : "",
+          !prof          ? iRow("Category",   s.category)    : "",
+          iRow("Status",    statusLabel),
+        ].join("");
+
         return `
           <div class="${cardCls}"${hidden} data-site="${escapeHtml(s.name)}">
             <div class="dos-card-head">
@@ -61,11 +224,8 @@
               <span class="dos-card-title">${escapeHtml(s.name)}</span>
             </div>
             <div class="dos-card-preview">
-              <div class="dos-preview-rows">
-                ${iRow("Username", container._wmnUsername)}
-                ${iRow("Category", s.category)}
-                ${iRow("Status", statusLabel)}
-              </div>
+              ${avatarHTML}
+              <div class="dos-preview-rows">${rows}</div>
             </div>
             <div class="dos-card-foot">
               <a class="dos-card-foot-btn" href="${escapeHtml(s.url)}" target="_blank" title="Open profile" onclick="event.stopPropagation()">↗</a>
@@ -100,14 +260,20 @@
     }
   }
 
-  // Fire background probes and update cards live
+  // Fire background probes and update cards live; enrich found accounts
   function startWMNProbe(username, container) {
     if (!container) return;
     const sites = container._wmnSites || [];
     const statuses = container._wmnStatuses || new Map();
+    if (!container._wmnEnriched) container._wmnEnriched = new Map();
+    const enriched = container._wmnEnriched;
+
     sites.forEach((s) => {
       if (!statuses.has(s.name)) statuses.set(s.name, "pending");
     });
+
+    // Build a site-name → site-object lookup
+    const siteMap = Object.fromEntries(sites.map(s => [s.name, s]));
 
     let renderTimer = null;
     function scheduleRender() {
@@ -121,6 +287,20 @@
     GI.usernameProbe(username, (hit) => {
       statuses.set(hit.site, hit.status === "reachable" ? "found" : "not_found");
       scheduleRender();
+
+      // For FOUND accounts, kick off enrichment in the background
+      if (hit.status === "reachable" && !enriched.has(hit.site)) {
+        enriched.set(hit.site, null); // mark as in-progress
+        const site = siteMap[hit.site];
+        if (site) {
+          enrichProfile(username, hit.site, site.url).then(prof => {
+            if (prof) {
+              enriched.set(hit.site, prof);
+              scheduleRender();
+            }
+          }).catch(() => {});
+        }
+      }
     });
   }
 

@@ -214,8 +214,8 @@
       sigCache.ult = (await sha256Hex("ULT:" + SECRET))
         .slice(0, 8)
         .toUpperCase();
-    if (!sigCache.ult)
-      sigCache.ult = (await sha256Hex("ULT:" + SECRET))
+    if (!sigCache.ult2)
+      sigCache.ult2 = (await sha256Hex("ULT2:" + SECRET))
         .slice(0, 8)
         .toUpperCase();
     if (!sigCache.adm)
@@ -233,23 +233,25 @@
     const [, tag, sig] = m;
     // Check revocation list before anything else
     if (REVOKED.has(sig)) return { valid: false, revoked: true };
+    // ULT accepts either the original slot or the ult2 slot
+    if (tag === "ULT") {
+      if (!sigCache.ult || !sigCache.ult2) return { valid: false, pending: true };
+      const valid = sig === sigCache.ult || sig === sigCache.ult2;
+      return { valid, tier: "ult" };
+    }
     const expected =
       tag === "PRO"
         ? sigCache.pro
         : tag === "ENT"
           ? sigCache.ent
-          : tag === "ULT"
-            ? sigCache.ult
-            : sigCache.adm;
+          : sigCache.adm;
     if (!expected) return { valid: false, pending: true };
     const tier =
       tag === "PRO"
         ? "pro"
         : tag === "ENT"
           ? "ent"
-          : tag === "ULT"
-            ? "ult"
-            : "adm";
+          : "adm";
     return { valid: sig === expected, tier };
   }
 

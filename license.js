@@ -34,6 +34,11 @@
   const TRIAL_STORE = "gi:license:trial"; // { key, activatedAt }
   const SECRET = "GIDEON-OMNI-INT-2026-v3"; // baseline shared secret
 
+  // ── Revoked keys (sig portion only — add 8-char hex to kill a specific key)
+  const REVOKED = new Set([
+    "81FD3B4F", // GIDEON-ULT-81FD3B4F — revoked 2026-04-25
+  ]);
+
   // Trial-key lifecycle (ms)
   //   0h  → 10h : ULTIMATE   (full access — everything unlocked)
   //  10h  → 11h : PRO        (grace period — step-down)
@@ -226,6 +231,8 @@
       .match(/^GIDEON-(PRO|ENT|ULT|ADM)-([A-F0-9]{8})$/);
     if (!m) return { valid: false };
     const [, tag, sig] = m;
+    // Check revocation list before anything else
+    if (REVOKED.has(sig)) return { valid: false, revoked: true };
     const expected =
       tag === "PRO"
         ? sigCache.pro
@@ -250,6 +257,7 @@
   L.activate = async function activate(key) {
     await ensureSigs();
     const v = validateKey(key);
+    if (v.revoked) return { ok: false, error: "License key has been revoked" };
     if (!v.valid) return { ok: false, error: "Invalid license key" };
 
     const normKey = key.trim().toUpperCase();

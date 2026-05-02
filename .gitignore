@@ -16,3 +16,14 @@ node_modules/
 # Build artifacts
 dist/
 build/
+
+# Dev screenshots / debug tools
+screenshot_*.png
+nul
+
+# Reference images
+*.png
+!favicon*.png
+
+# Puppeteer chromium cache
+.local-chromium/

@@ -1114,8 +1114,20 @@ document.getElementById("link-gen").addEventListener("click", async () => {
   const tag = document.getElementById("link-tag").value.trim() || "untagged";
   const slug = Math.random().toString(36).slice(2, 8);
 
-  // Tracking URL — points to local server which captures real visitor IP
-  const trackUrl = `${location.origin}/t/${slug}`;
+  // Fetch public tunnel URL (localtunnel gives us a real internet-accessible URL)
+  let baseUrl = location.origin;
+  try {
+    const tr = await fetch(`${location.origin}/api/tunnel-url`);
+    if (tr.ok) {
+      const td = await tr.json();
+      if (td.url && !td.url.includes("localhost")) baseUrl = td.url;
+    }
+  } catch {
+    /* use localhost fallback */
+  }
+
+  // Tracking URL — points to public URL which captures real visitor IP
+  const trackUrl = `${baseUrl}/t/${slug}`;
 
   // Register campaign with server so it knows where to redirect
   try {

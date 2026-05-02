@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { default: localtunnel } = require("localtunnel");
 
 const PORT = 8765;
 const ROOT = __dirname;
@@ -88,6 +89,14 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
+  // ── PUBLIC URL API: GET /api/tunnel-url ─────────────────────────────────
+  if (req.method === "GET" && urlPath === "/api/tunnel-url") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(
+      JSON.stringify({ url: publicUrl || "http://localhost:" + PORT }),
+    );
+  }
+
   // ── HITS API: GET /t/:slug/hits  — return all hits for a campaign ─────
   if (req.method === "GET" && /^\/t\/([a-z0-9]+)\/hits$/.test(urlPath)) {
     const slug = urlPath.split("/")[2];
@@ -132,6 +141,31 @@ const server = http.createServer((req, res) => {
   });
 });
 
+// ── PUBLIC URL (localtunnel) ──────────────────────────────────────────────
+let publicUrl = null;
+
+async function startTunnel() {
+  try {
+    const tunnel = await localtunnel({ port: PORT });
+    publicUrl = tunnel.url;
+    console.log("  ─────────────────────────────────────────");
+    console.log("  Public URL: " + publicUrl);
+    console.log("  Share this URL for real IP tracking links");
+    console.log("  ─────────────────────────────────────────");
+    tunnel.on("close", () => {
+      console.log("  [TUNNEL] closed — restart server to get a new URL");
+      publicUrl = null;
+    });
+    tunnel.on("error", (err) => {
+      console.error("  [TUNNEL] error:", err.message);
+      publicUrl = null;
+    });
+  } catch (err) {
+    console.warn("  [TUNNEL] could not start localtunnel:", err.message);
+    console.warn("  [TUNNEL] tracking links will use localhost only");
+  }
+}
+
 server.listen(PORT, "127.0.0.1", () => {
   console.log("");
   console.log("  ██████╗ ██╗██████╗ ███████╗ ██████╗ ███╗   ██╗███████╗");
@@ -148,6 +182,7 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log("  ─────────────────────────────────────────");
   console.log("  Ctrl+C to shut down.");
   console.log("");
+  startTunnel();
 });
 
 server.on("error", (err) => {

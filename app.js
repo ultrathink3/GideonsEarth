@@ -1876,6 +1876,9 @@ async function enterWalkMode(lon, lat, pickedHeight) {
     }
   }
 
+  // Never spawn below sea level
+  if (groundHeight < 0 || !Number.isFinite(groundHeight)) groundHeight = 0;
+
   // Start 50m above the surface and let gravity drop us onto it — guarantees we
   // never spawn *inside* a building or hillside.
   walk.position = Cesium.Cartographic.fromDegrees(
@@ -1883,6 +1886,14 @@ async function enterWalkMode(lon, lat, pickedHeight) {
     lat,
     groundHeight + walk.eyeHeight + 50,
   );
+
+  // Warn if spawning over water
+  if (groundHeight <= 0) {
+    feed(
+      "warn",
+      "WALK-MAN :: spawned near sea level — you may be over water. Click land to reposition.",
+    );
+  }
   walk.heading = 0;
   walk.pitch = 0;
   walk.velocity = { fwd: 0, right: 0, up: 0 };
@@ -2091,14 +2102,32 @@ viewer.clock.onTick.addEventListener(() => {
   // Kick an async ground-height refresh (returns immediately)
   refreshGroundHeight();
 
-  // Use the cached async ground height. If we don't have one yet, fall back
-  // to globe.getHeight (terrain-only) — never to 0, which would teleport
-  // the walker down to sea level.
+  // Ground height resolution chain (fastest first):
+  // 1. Cached async clampToHeight (most accurate, includes 3D tiles)
+  // 2. Sync scene.sampleHeight (works if tile is loaded in view)
+  // 3. Sync globe.getHeight (terrain only)
+  // 4. Sea level (0m) as absolute floor
   let groundH = walk.groundHeight;
+  if (groundH == null && scene.sampleHeightSupported) {
+    try {
+      const syncH = scene.sampleHeight(
+        Cesium.Cartographic.fromRadians(
+          walk.position.longitude,
+          walk.position.latitude,
+        ),
+        walk.avatarEntity ? [walk.avatarEntity] : [],
+      );
+      if (typeof syncH === "number" && Number.isFinite(syncH)) groundH = syncH;
+    } catch {
+      /* ignore */
+    }
+  }
   if (groundH == null) {
     const gh = scene.globe.getHeight(walk.position);
-    groundH = gh != null ? gh : walk.position.height - walk.eyeHeight;
+    if (gh != null && Number.isFinite(gh)) groundH = gh;
   }
+  // Absolute floor: never go below sea level (0m)
+  if (groundH == null || groundH < 0) groundH = 0;
 
   // Free vertical movement (Q/E) overrides gravity
   if (vertical !== 0) {

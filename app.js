@@ -1108,6 +1108,15 @@ document
 const linkOut = document.getElementById("link-out");
 const _ltPollers = {};
 
+// Persist worker API key
+const _wkEl = document.getElementById("link-worker-key");
+if (_wkEl) {
+  _wkEl.value = localStorage.getItem("gi:worker-key") || "";
+  _wkEl.addEventListener("change", () =>
+    localStorage.setItem("gi:worker-key", _wkEl.value.trim()),
+  );
+}
+
 // CF button — copies cloudflared setup command to clipboard
 document.getElementById("link-cf-copy").addEventListener("click", async () => {
   const cmd = "cloudflared tunnel --url localhost:8765";
@@ -1169,41 +1178,21 @@ document.getElementById("link-gen").addEventListener("click", async () => {
     );
   }
 
-  // Auto-shorten so the final link looks clean
-  let shortUrl = trackUrl;
-  try {
-    // is.gd — clean, free, no account, not obviously a tracker
-    const sg = await fetch(
-      `https://is.gd/create.php?format=simple&url=${encodeURIComponent(trackUrl)}`,
-    );
-    if (sg.ok) {
-      const s = (await sg.text()).trim();
-      if (s.startsWith("http")) shortUrl = s;
-    }
-  } catch {
-    try {
-      // fallback: tinyurl
-      const tu = await fetch(
-        `https://tinyurl.com/api-create.php?url=${encodeURIComponent(trackUrl)}`,
-      );
-      if (tu.ok) {
-        const s = (await tu.text()).trim();
-        if (s.startsWith("http")) shortUrl = s;
-      }
-    } catch {
-      /* use raw trackUrl */
-    }
-  }
+  const shortUrl = trackUrl;
 
-  // Register campaign with server
+  // Register campaign — use worker API if custom base set, else local server
+  const isWorker = customBase && customBase.startsWith("http");
   try {
-    await fetch(`${location.origin}/t/${slug}/register`, {
+    const regUrl = isWorker
+      ? `${baseUrl}/register`
+      : `${location.origin}/t/${slug}/register`;
+    await fetch(regUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, tag, docId }),
+      body: JSON.stringify({ slug, docId, target, tag }),
     });
   } catch {
-    /* server may not be running — graceful fallback */
+    /* graceful fallback */
   }
 
   linkOut.innerHTML = `
@@ -1222,9 +1211,16 @@ document.getElementById("link-gen").addEventListener("click", async () => {
   // Poll server every 5 s for real hits
   let lastCount = 0;
   if (_ltPollers[slug]) clearInterval(_ltPollers[slug]);
+  // Worker API key — set this to match API_KEY in worker.js
+  const workerApiKey =
+    localStorage.getItem("gi:worker-key") || "GX_CHANGE_THIS_SECRET_KEY";
+  const pollUrl = isWorker
+    ? `${baseUrl}/hits/${slug}?key=${encodeURIComponent(workerApiKey)}`
+    : `${location.origin}/t/${slug}/hits`;
+
   _ltPollers[slug] = setInterval(async () => {
     try {
-      const r = await fetch(`${location.origin}/t/${slug}/hits`);
+      const r = await fetch(pollUrl);
       if (!r.ok) return;
       const data = await r.json();
       if (data.hits.length > lastCount) {

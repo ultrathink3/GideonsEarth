@@ -2102,51 +2102,56 @@ viewer.clock.onTick.addEventListener(() => {
   // Kick an async ground-height refresh (returns immediately)
   refreshGroundHeight();
 
-  // Ground height resolution chain (fastest first):
-  // 1. Cached async clampToHeight (most accurate, includes 3D tiles)
-  // 2. Sync scene.sampleHeight (works if tile is loaded in view)
-  // 3. Sync globe.getHeight (terrain only)
-  // 4. Sea level (0m) as absolute floor
-  let groundH = walk.groundHeight;
-  if (groundH == null && scene.sampleHeightSupported) {
-    try {
-      const syncH = scene.sampleHeight(
-        Cesium.Cartographic.fromRadians(
-          walk.position.longitude,
-          walk.position.latitude,
-        ),
-        walk.avatarEntity ? [walk.avatarEntity] : [],
-      );
-      if (typeof syncH === "number" && Number.isFinite(syncH)) groundH = syncH;
-    } catch {
-      /* ignore */
-    }
-  }
-  if (groundH == null) {
-    const gh = scene.globe.getHeight(walk.position);
-    if (gh != null && Number.isFinite(gh)) groundH = gh;
-  }
-  // Absolute floor: never go below sea level (0m)
-  if (groundH == null || groundH < 0) groundH = 0;
+  // ── SURFACE-LOCK: always hover at eye height above rendered ground ──
+  // No gravity, no falling, no clipping. Just glue to whatever surface exists.
 
-  // Free vertical movement (Q/E) overrides gravity
+  // Q/E for manual altitude override
   if (vertical !== 0) {
     walk.position.height += vertical * walk.flySpeed * dt;
-    walk.velocity.up = 0;
   } else {
-    // Apply gravity, but never let feet drop below ground surface.
-    walk.velocity.up -= walk.gravity * dt;
-    let newHeight = walk.position.height + walk.velocity.up * dt;
-    const minHeight = groundH + walk.eyeHeight;
-    if (newHeight <= minHeight) {
-      newHeight = minHeight; // stick to surface
-      walk.velocity.up = 0;
-      walk.grounded = true;
-    } else {
-      walk.grounded = false;
+    // Try multiple methods to find the ground below us
+    let surfaceH = null;
+
+    // Method 1: sync sampleHeight (reads loaded 3D tiles + terrain)
+    if (scene.sampleHeightSupported) {
+      try {
+        const h = scene.sampleHeight(
+          Cesium.Cartographic.fromRadians(
+            walk.position.longitude,
+            walk.position.latitude,
+          ),
+          walk.avatarEntity ? [walk.avatarEntity] : [],
+        );
+        if (typeof h === "number" && Number.isFinite(h)) surfaceH = h;
+      } catch {}
     }
-    walk.position.height = newHeight;
+
+    // Method 2: cached async result
+    if (surfaceH == null && walk.groundHeight != null)
+      surfaceH = walk.groundHeight;
+
+    // Method 3: globe terrain height
+    if (surfaceH == null) {
+      const gh = scene.globe.getHeight(walk.position);
+      if (gh != null && Number.isFinite(gh)) surfaceH = gh;
+    }
+
+    // Method 4: sea level floor
+    if (surfaceH == null || surfaceH < 0) surfaceH = 0;
+
+    // Smoothly move toward target height (prevents jitter)
+    const targetH = surfaceH + walk.eyeHeight;
+    const diff = targetH - walk.position.height;
+    if (Math.abs(diff) > 200) {
+      // Teleport if too far off (initial drop or major terrain change)
+      walk.position.height = targetH;
+    } else {
+      // Smooth interpolation
+      walk.position.height += diff * Math.min(1, 8 * dt);
+    }
   }
+
+  walk.grounded = true;
 
   // Place the camera at the walker's eyes, looking in (heading, pitch)
   const camPos = Cesium.Cartesian3.fromRadians(

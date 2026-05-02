@@ -27,3 +27,6 @@ nul
 
 # Puppeteer chromium cache
 .local-chromium/
+
+# Deployment files — keep off GitHub
+deploy/

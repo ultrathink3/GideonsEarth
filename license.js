@@ -48,9 +48,9 @@
   const TRIAL_TOTAL_MS = TRIAL_ULT_MS + TRIAL_PRO_MS; // 11 hours
 
   // --- Feature → required tier map ---
-  // `free` = no gate; `pro` = PRO or better; `ent` = ENTERPRISE only; `ult` = ULTIMATE only
+  // Everything is FREE now. Only a handful of premium tools require contact.
   const GATE = {
-    // ==== FREE ====
+    // ==== ALL FREE — no gates ====
     "tab:geo": "free",
     "tab:dns": "free",
     "tab:user": "free",
@@ -60,25 +60,23 @@
     "tab:feed": "free",
     "tool:defense": "free",
     "tool:leaderboard": "free",
-    // ==== PRO ====
-    "tab:dossier": "pro",
-    "tab:graph": "pro",
-    "tab:csint": "pro",
-    "tab:certstream": "pro",
-    "tab:chrono": "pro",
-    "tab:opsec": "pro",
-    "feature:traceroute": "pro",
-    "feature:export-json": "pro",
-    "feature:export-md": "pro",
-    // ==== ENTERPRISE ====
-    "tool:sats": "ent",
-    "tool:flights": "ent",
-    "tool:quakes": "ent",
-    "tool:volcano": "ent",
-    "tool:gibs": "ent",
-    "tab:models": "ent",
-    "tool:walk": "ent",
-    // ==== ULTIMATE ====
+    "tab:dossier": "free",
+    "tab:graph": "free",
+    "tab:csint": "free",
+    "tab:certstream": "free",
+    "tab:chrono": "free",
+    "tab:opsec": "free",
+    "feature:traceroute": "free",
+    "feature:export-json": "free",
+    "feature:export-md": "free",
+    "tool:sats": "free",
+    "tool:flights": "free",
+    "tool:quakes": "free",
+    "tool:volcano": "free",
+    "tool:gibs": "free",
+    "tab:models": "free",
+    "tool:walk": "free",
+    // ==== PREMIUM — contact to access ====
     "feature:llm-dossier": "ult",
     "feature:webhook": "ult",
     "feature:whitelabel": "ult",
@@ -235,7 +233,8 @@
     if (REVOKED.has(sig)) return { valid: false, revoked: true };
     // ULT accepts either the original slot or the ult2 slot
     if (tag === "ULT") {
-      if (!sigCache.ult || !sigCache.ult2) return { valid: false, pending: true };
+      if (!sigCache.ult || !sigCache.ult2)
+        return { valid: false, pending: true };
       const valid = sig === sigCache.ult || sig === sigCache.ult2;
       return { valid, tier: "ult" };
     }
@@ -246,12 +245,7 @@
           ? sigCache.ent
           : sigCache.adm;
     if (!expected) return { valid: false, pending: true };
-    const tier =
-      tag === "PRO"
-        ? "pro"
-        : tag === "ENT"
-          ? "ent"
-          : "adm";
+    const tier = tag === "PRO" ? "pro" : tag === "ENT" ? "ent" : "adm";
     return { valid: sig === expected, tier };
   }
 
@@ -331,91 +325,44 @@
             : ""
         }
 
-        <div class="li-grid">
-          <div class="li-tier">
-            <div class="li-tier-name">FREE</div>
-            <div class="li-tier-price">$0</div>
-            <ul>
-              <li>✓ GEO-IP tracer</li>
-              <li>✓ DNS + Cert-Transparency</li>
-              <li>✓ Username hunt (WhatsMyName)</li>
-              <li>✓ Email + HIBP password check</li>
-              <li>✓ Link-Trace campaigns</li>
-              <li>✓ GIDEON DEFENSE GRID</li>
-              <li>✓ Global Leaderboard</li>
-            </ul>
-            <div class="li-cta ${tier === "free" ? "active" : ""}">${tier === "free" ? "CURRENT" : "—"}</div>
+        <div style="text-align:center;padding:20px 0 10px">
+          <div style="font-size:40px;margin-bottom:16px">🌍</div>
+          <div style="font-size:16px;font-weight:600;color:var(--accent);letter-spacing:2px;margin-bottom:12px">ALL TOOLS — FREE</div>
+          <div style="font-size:13px;color:var(--text);line-height:1.7;max-width:400px;margin:0 auto">
+            Every OSINT, GEOINT, CSINT, and DEFENSE module is <b>fully unlocked</b>.<br>
+            DOSSIER · GRAPH · CERTSTREAM · CHRONO · OPSEC · GEOINT · WALK-MAN · MODELS · Everything.
           </div>
-          <div class="li-tier li-tier-pro">
-            <div class="li-tier-name">PRO</div>
-            <div class="li-tier-price">$9<span>/mo</span></div>
-            <ul>
-              <li>✓ Everything in FREE</li>
-              <li>★ <b>DOSSIER</b> unified sweep</li>
-              <li>★ <b>GRAPH</b> entity graph</li>
-              <li>★ <b>CSINT</b> (CVE+KEV · ThreatFox · typosquat · favicon · Tor)</li>
-              <li>★ <b>CERTSTREAM</b> live firehose</li>
-              <li>★ <b>CHRONO</b> sun-angle</li>
-              <li>★ <b>OPSEC</b> self-scan</li>
-              <li>★ Export JSON / Markdown</li>
-              <li>★ Traceroute arcs</li>
-            </ul>
-            <button class="li-cta buy" data-tier="pro">PAY WITH CRYPTO →</button>
+        </div>
+
+        <div style="margin:24px 0;padding:18px;background:rgba(18,255,198,.05);border:1px dashed rgba(18,255,198,.3);border-radius:8px">
+          <div style="font-size:11px;letter-spacing:2px;color:rgba(18,255,198,.7);margin-bottom:10px;text-transform:uppercase">Premium Tools — Contact for Access</div>
+          <ul style="list-style:none;padding:0;font-size:12px;line-height:2;color:var(--text)">
+            <li>⚡ <b>API Webhooks</b> — pipe intel into your own stack</li>
+            <li>⚡ <b>White-Label Deploy</b> — custom branding + private instance</li>
+            <li>⚡ <b>Team Mode</b> — multi-operator shared sessions</li>
+            <li>⚡ <b>LLM Dossier</b> — on-device AI summarizer</li>
+            <li>⚡ <b>Custom Modules</b> — built to your spec</li>
+          </ul>
+          <div style="margin-top:14px;text-align:center">
+            <a href="mailto:keys@gideonintel.io?subject=Premium%20Tools%20Inquiry" style="display:inline-block;padding:10px 24px;background:var(--accent);color:#001a14;font-weight:700;font-size:12px;letter-spacing:2px;border-radius:4px;text-decoration:none;text-transform:uppercase">CONTACT → keys@gideonintel.io</a>
           </div>
-          <div class="li-tier li-tier-ent">
-            <div class="li-tier-name">ENTERPRISE</div>
-            <div class="li-tier-price">$25<span>/mo</span></div>
-            <ul>
-              <li>✓ Everything in PRO</li>
-              <li>★ <b>GEOINT feeds</b> — live ADS-B, satellites, quakes, volcanoes, NASA GIBS</li>
-              <li>★ <b>MODELS</b> 3D upload to Cesium Ion</li>
-              <li>★ <b>WALK-MAN</b> first-person</li>
-              <li>★ Priority support</li>
-              <li>★ Custom deployments</li>
-            </ul>
-            <button class="li-cta buy" data-tier="ent">PAY WITH CRYPTO →</button>
-          </div>
-          <div class="li-tier li-tier-ult">
-            <div class="li-tier-name">⚡ ULTIMATE</div>
-            <div class="li-tier-price">$99<span>/mo</span></div>
-            <ul>
-              <li>✓ Everything in ENTERPRISE</li>
-              <li>⚡ <b>LLM DOSSIER</b> — on-device AI summarizer (early access)</li>
-              <li>⚡ <b>TEAM MODE</b> — multi-operator shared sessions</li>
-              <li>⚡ <b>WHITE-LABEL</b> — custom branding + private deploy</li>
-              <li>⚡ <b>API WEBHOOKS</b> — pipe intel into your own stack</li>
-              <li>⚡ <b>DIRECT DEV LINE</b> — custom module requests</li>
-              <li>⚡ 4-hour SLA support</li>
-            </ul>
-            <button class="li-cta buy" data-tier="ult">PAY WITH CRYPTO →</button>
-          </div>
-          <div class="li-tier li-tier-adm" style="border-color:#ff2e6e;box-shadow:0 0 18px rgba(255,46,110,.4)">
-            <div class="li-tier-name" style="color:#ff2e6e">⚡ ADMIN</div>
-            <div class="li-tier-price" style="color:#ff2e6e">INTERNAL</div>
-            <ul>
-              <li>🔴 <b>ALL GATES BYPASSED</b></li>
-              <li>🔴 Every feature unlocked</li>
-              <li>🔴 All tiers included</li>
-              <li>🔴 Dev console access</li>
-              <li>🔴 Internal use only</li>
-            </ul>
-            <div class="li-cta" style="color:#ff2e6e;border-color:#ff2e6e">NOT FOR SALE</div>
+          <div style="text-align:center;margin-top:10px">
+            <a href="https://github.com/ultrathink3/GideonsEarth/issues" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none">or open a GitHub issue</a>
           </div>
         </div>
 
         <div class="li-activate">
           <label>ENTER LICENSE KEY</label>
           <div class="li-activate-row">
-            <input id="li-key" type="text" placeholder="GIDEON-PRO/ENT/ULT-XXXXXXXX" autocomplete="off" />
+            <input id="li-key" type="text" placeholder="GIDEON-KEY-XXXXXXXX" autocomplete="off" />
             <button id="li-go" class="btn-primary">✓ ACTIVATE</button>
           </div>
           <div id="li-msg"></div>
-          ${tier !== "free" ? `<button id="li-deact" class="btn-ghost">✕ Deactivate current ${L.tierLabel(tier)} license</button>` : ""}
+          ${tier !== "free" ? `<button id="li-deact" class="btn-ghost">✕ Deactivate ${L.tierLabel(tier)} key</button>` : ""}
         </div>
 
         <div class="li-foot">
-          Pay in crypto → email the txid → receive your GIDEON-PRO/ENT/ULT-XXXXXXXX key within 24h.
-          Keys are stored locally in your browser — no account needed.
+          Keys unlock premium tools only. All standard features are free — no key needed.
         </div>
       </div>
     `;
@@ -556,7 +503,7 @@
     const btn = document.createElement("button");
     btn.id = "li-upgrade-btn";
     btn.className = "li-upgrade-btn";
-    btn.title = "GideonIntel tiers — FREE / PRO / ENTERPRISE / ULTIMATE";
+    btn.title = "GideonIntel — All tools free · Premium tools available";
     btn.addEventListener("click", () => L.showUpgrade());
     document.body.appendChild(btn);
     refreshUpgradeBtn();
@@ -568,7 +515,7 @@
     if (!btn) return;
     const tier = L.currentTier();
     const tr = L.trialStatus();
-    let label = tier === "free" ? "UPGRADE" : L.tierLabel(tier);
+    let label = tier === "free" ? "INFO" : L.tierLabel(tier);
     let sub = "";
     btn.classList.remove("li-trial-ult", "li-trial-pro");
     if (tr) {

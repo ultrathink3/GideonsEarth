@@ -254,8 +254,17 @@
                 >
                 <input id="hibp-key" type="text" placeholder="hibp-api-key" />
 
-                <label class="lbl">SPOKEO API KEY <span style="opacity: 0.6">(optional, stored locally)</span></label>
-                <input id="spokeo-key" type="text" placeholder="spokeo-api-key" />
+                <label class="lbl"
+                    >SPOKEO API KEY
+                    <span style="opacity: 0.6"
+                        >(optional, stored locally)</span
+                    ></label
+                >
+                <input
+                    id="spokeo-key"
+                    type="text"
+                    placeholder="spokeo-api-key"
+                />
 
                 <div
                     id="dos-class"
@@ -531,13 +540,48 @@
                     type="text"
                     placeholder="operation-nightowl"
                 />
+                <label class="lbl"
+                    >PUBLIC BASE URL
+                    <span style="opacity: 0.6"
+                        >(your domain / Cloudflare tunnel)</span
+                    ></label
+                >
+                <div class="row" style="gap: 6px">
+                    <input
+                        id="link-base-url"
+                        type="text"
+                        placeholder="https://yourdomain.com  or  leave blank"
+                    />
+                    <button
+                        id="link-cf-copy"
+                        class="btn-ghost"
+                        title="Copy Cloudflare tunnel command"
+                    >
+                        CF
+                    </button>
+                </div>
+                <div
+                    id="link-tunnel-hint"
+                    style="
+                        font-size: 10px;
+                        color: rgba(18, 255, 198, 0.5);
+                        margin: 4px 0 8px;
+                        line-height: 1.6;
+                        display: none;
+                    "
+                ></div>
                 <button id="link-gen" class="btn-primary full">
                     ⚡ GENERATE INTEL LINK
                 </button>
-                <div id="link-out" class="result"></div>
+                <div id="link-out"></div>
                 <p class="hint">
-                    GideonIntel-style shortener. Clicks are logged locally and
-                    pinned to the globe by geo-IP.
+                    For covert ops: run
+                    <code style="color: var(--accent)"
+                        >cloudflared tunnel --url localhost:8765</code
+                    >
+                    in a terminal, paste the
+                    <code>*.trycloudflare.com</code> URL above. Or use your own
+                    domain.
                 </p>
             </section>
 

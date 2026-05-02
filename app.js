@@ -1106,7 +1106,21 @@ document
 
 // ---------- LINK-TRACE (GideonIntel) ----------
 const linkOut = document.getElementById("link-out");
-const _ltPollers = {}; // active poll timers per slug
+const _ltPollers = {};
+
+// CF button — copies cloudflared setup command to clipboard
+document.getElementById("link-cf-copy").addEventListener("click", async () => {
+  const cmd = "cloudflared tunnel --url localhost:8765";
+  const hint = document.getElementById("link-tunnel-hint");
+  try {
+    await navigator.clipboard.writeText(cmd);
+    hint.style.display = "block";
+    hint.innerHTML = `✓ Copied to clipboard!<br>1. Paste &amp; run in a terminal<br>2. Copy the <b>https://*.trycloudflare.com</b> URL it gives you<br>3. Paste that URL into the field above<br><br>No account needed. One-time binary: <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank" style="color:var(--accent)">cloudflare.com/downloads</a>`;
+  } catch {
+    hint.style.display = "block";
+    hint.textContent = cmd;
+  }
+});
 
 document.getElementById("link-gen").addEventListener("click", async () => {
   const target =
@@ -1122,20 +1136,38 @@ document.getElementById("link-gen").addEventListener("click", async () => {
     () => chars[Math.floor(Math.random() * chars.length)],
   ).join("");
 
-  // Fetch public tunnel URL
+  // 1. Check if operator entered a custom base URL (their own domain / CF tunnel / ngrok)
+  const customBase = (document.getElementById("link-base-url").value || "")
+    .trim()
+    .replace(/\/+$/, "");
+
   let baseUrl = location.origin;
-  try {
-    const tr = await fetch(`${location.origin}/api/tunnel-url`);
-    if (tr.ok) {
-      const td = await tr.json();
-      if (td.url && !td.url.includes("localhost")) baseUrl = td.url;
+  if (customBase && customBase.startsWith("http")) {
+    baseUrl = customBase;
+    feed("ok", `LINK-TRACE :: using custom base → ${baseUrl}`);
+  } else {
+    // 2. Try localtunnel auto-URL from server
+    try {
+      const tr = await fetch(`${location.origin}/api/tunnel-url`);
+      if (tr.ok) {
+        const td = await tr.json();
+        if (td.url && !td.url.includes("localhost")) baseUrl = td.url;
+      }
+    } catch {
+      /* localhost fallback */
     }
-  } catch {
-    /* use localhost fallback */
   }
 
   // Tracking URL — looks like a Google Drive doc share link
   const trackUrl = `${baseUrl}/d/${docId}`;
+
+  // Warn if still localhost
+  if (baseUrl.includes("localhost")) {
+    feed(
+      "warn",
+      "LINK-TRACE :: no public URL set — link only works on this machine. Use CF button for Cloudflare tunnel.",
+    );
+  }
 
   // Register campaign with server
   try {

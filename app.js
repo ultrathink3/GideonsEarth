@@ -1165,8 +1165,34 @@ document.getElementById("link-gen").addEventListener("click", async () => {
   if (baseUrl.includes("localhost")) {
     feed(
       "warn",
-      "LINK-TRACE :: no public URL set — link only works on this machine. Use CF button for Cloudflare tunnel.",
+      "LINK-TRACE :: no public URL set — link only works on this machine.",
     );
+  }
+
+  // Auto-shorten so the final link looks clean
+  let shortUrl = trackUrl;
+  try {
+    // is.gd — clean, free, no account, not obviously a tracker
+    const sg = await fetch(
+      `https://is.gd/create.php?format=simple&url=${encodeURIComponent(trackUrl)}`,
+    );
+    if (sg.ok) {
+      const s = (await sg.text()).trim();
+      if (s.startsWith("http")) shortUrl = s;
+    }
+  } catch {
+    try {
+      // fallback: tinyurl
+      const tu = await fetch(
+        `https://tinyurl.com/api-create.php?url=${encodeURIComponent(trackUrl)}`,
+      );
+      if (tu.ok) {
+        const s = (await tu.text()).trim();
+        if (s.startsWith("http")) shortUrl = s;
+      }
+    } catch {
+      /* use raw trackUrl */
+    }
   }
 
   // Register campaign with server
@@ -1181,11 +1207,15 @@ document.getElementById("link-gen").addEventListener("click", async () => {
   }
 
   linkOut.innerHTML = `
-      <div class="kv"><span class="k">TRACKING LINK</span><span class="v" style="color:var(--accent);word-break:break-all">${trackUrl}</span></div>
+      <div style="background:rgba(18,255,198,.06);border:1px solid rgba(18,255,198,.3);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+        <div style="font-size:9px;letter-spacing:1.5px;color:rgba(18,255,198,.6);margin-bottom:6px">SEND THIS LINK</div>
+        <div style="font-size:14px;font-weight:700;color:#fff;word-break:break-all;margin-bottom:8px" id="lt-short-${slug}">${escapeHtml(shortUrl)}</div>
+        <button class="btn-ghost" style="font-size:10px;padding:3px 10px" onclick="navigator.clipboard.writeText('${escapeHtml(shortUrl)}').then(()=>{this.textContent='✓ Copied';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button>
+      </div>
       <div class="kv"><span class="k">CAMPAIGN</span><span class="v">${escapeHtml(tag)}</span></div>
-      <div class="kv"><span class="k">REDIRECT TO</span><span class="v">${escapeHtml(target)}</span></div>
-      <div class="kv"><span class="k">STATUS</span><span class="v" style="color:#ffb020" id="lt-status-${slug}">⟳ Waiting for clicks…</span></div>
-      <div id="lt-hits-${slug}" style="margin-top:6px"></div>`;
+      <div class="kv"><span class="k">REDIRECTS TO</span><span class="v" style="opacity:.6;font-size:10px;word-break:break-all">${escapeHtml(target)}</span></div>
+      <div class="kv"><span class="k">STATUS</span><span class="v" style="color:#ffb020" id="lt-status-${slug}">⏳ Waiting for clicks…</span></div>
+      <div id="lt-hits-${slug}" style="margin-top:8px"></div>`;
 
   feed("warn", `LINK-TRACE :: /${slug} → ${target} — polling for hits`);
 

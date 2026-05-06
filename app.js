@@ -1825,6 +1825,7 @@ const walk = {
   // Body model
   avatarId: null,
   avatarEntity: null, // direct entity ref so we can exclude it from picking
+  _lastGoodGroundH: null, // depth-buffer ground cache for next frame
 };
 
 const btnWalk = document.getElementById("btn-walk");
@@ -2120,18 +2121,35 @@ viewer.clock.onTick.addEventListener(() => {
   // Kick an async ground-height refresh (returns immediately)
   refreshGroundHeight();
 
-  // ── SURFACE-LOCK: always hover at eye height above rendered ground ──
-  // No gravity, no falling, no clipping. Just glue to whatever surface exists.
+  // ── SURFACE-LOCK: use scene.pickPosition for reliable ground detection ──
+  // Instead of sampling height (which misses 3D tiles at low LOD),
+  // we project a virtual ray straight DOWN from the walker through the
+  // center-bottom of the screen. scene.pickPosition reads the depth buffer
+  // which includes ALL rendered geometry (terrain + 3D tiles + buildings).
 
-  // Q/E for manual altitude override
   if (vertical !== 0) {
     walk.position.height += vertical * walk.flySpeed * dt;
   } else {
-    // Try multiple methods to find the ground below us
     let surfaceH = null;
 
-    // Method 1: sync sampleHeight (reads loaded 3D tiles + terrain)
-    if (scene.sampleHeightSupported) {
+    // Primary: pick the depth buffer at screen center-bottom (virtual "look down")
+    // This ALWAYS works because it reads whatever is rendered in the frame buffer
+    try {
+      const screenCenter = new Cesium.Cartesian2(
+        Math.round(viewer.canvas.clientWidth / 2),
+        Math.round(viewer.canvas.clientHeight * 0.85), // slightly below center
+      );
+      const picked = scene.pickPosition(screenCenter);
+      if (picked) {
+        const carto = Cesium.Cartographic.fromCartesian(picked);
+        if (carto && Number.isFinite(carto.height)) {
+          surfaceH = carto.height;
+        }
+      }
+    } catch {}
+
+    // Fallback 1: sync sampleHeight
+    if (surfaceH == null && scene.sampleHeightSupported) {
       try {
         const h = scene.sampleHeight(
           Cesium.Cartographic.fromRadians(
@@ -2140,32 +2158,39 @@ viewer.clock.onTick.addEventListener(() => {
           ),
           walk.avatarEntity ? [walk.avatarEntity] : [],
         );
-        if (typeof h === "number" && Number.isFinite(h)) surfaceH = h;
+        if (typeof h === "number" && Number.isFinite(h) && h > 0) surfaceH = h;
       } catch {}
     }
 
-    // Method 2: cached async result
-    if (surfaceH == null && walk.groundHeight != null)
+    // Fallback 2: async cached value
+    if (
+      surfaceH == null &&
+      walk.groundHeight != null &&
+      walk.groundHeight > 0
+    ) {
       surfaceH = walk.groundHeight;
-
-    // Method 3: globe terrain height
-    if (surfaceH == null) {
-      const gh = scene.globe.getHeight(walk.position);
-      if (gh != null && Number.isFinite(gh)) surfaceH = gh;
     }
 
-    // Method 4: sea level floor
+    // Fallback 3: globe terrain
+    if (surfaceH == null) {
+      const gh = scene.globe.getHeight(walk.position);
+      if (gh != null && Number.isFinite(gh) && gh > 0) surfaceH = gh;
+    }
+
+    // Absolute floor
     if (surfaceH == null || surfaceH < 0) surfaceH = 0;
 
-    // Smoothly move toward target height (prevents jitter)
+    // Store as last known good height (for next frame if all methods fail)
+    if (surfaceH > 0) walk._lastGoodGroundH = surfaceH;
+    else if (walk._lastGoodGroundH) surfaceH = walk._lastGoodGroundH;
+
+    // Smoothly move toward target height
     const targetH = surfaceH + walk.eyeHeight;
     const diff = targetH - walk.position.height;
     if (Math.abs(diff) > 200) {
-      // Teleport if too far off (initial drop or major terrain change)
-      walk.position.height = targetH;
+      walk.position.height = targetH; // teleport if way off
     } else {
-      // Smooth interpolation
-      walk.position.height += diff * Math.min(1, 8 * dt);
+      walk.position.height += diff * Math.min(1, 8 * dt); // smooth lerp
     }
   }
 

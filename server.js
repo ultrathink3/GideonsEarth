@@ -57,11 +57,12 @@ const server = http.createServer((req, res) => {
     req.on("data", (d) => (body += d));
     req.on("end", () => {
       try {
-        const { target, tag, docId } = JSON.parse(body);
+        const { target, tag, docId, pixel } = JSON.parse(body);
         campaigns[slug] = {
           target: target || "/",
           tag: tag || "",
           docId: docId || slug,
+          pixel: pixel || null,
           hits: [],
         };
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -133,6 +134,7 @@ body{background:#f7f7f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
   <div class="bar-wrap"><div class="bar"></div></div>
   <div class="small">Checking connection security...</div>
 </div>
+${campaign && campaign.pixel ? `<img src="${campaign.pixel.replace(/"/g, "&quot;")}" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" alt="">` : ""}
 <script>
 (function(){
   var slug=${stun};

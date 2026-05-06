@@ -1180,6 +1180,9 @@ document.getElementById("link-gen").addEventListener("click", async () => {
 
   const shortUrl = trackUrl;
 
+  // Tracking pixel (IPLogger etc)
+  const pixel = (document.getElementById("link-pixel")?.value || "").trim();
+
   // Register campaign — use worker API if custom base set, else local server
   const isWorker = customBase && customBase.startsWith("http");
   try {
@@ -1189,7 +1192,7 @@ document.getElementById("link-gen").addEventListener("click", async () => {
     await fetch(regUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, docId, target, tag }),
+      body: JSON.stringify({ slug, docId, target, tag, pixel }),
     });
   } catch {
     /* graceful fallback */

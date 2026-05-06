@@ -1540,6 +1540,24 @@ window.GideonsEarth.addModel = async (assetId, opts = {}) => {
   return loadIonAsset(fakeAsset);
 };
 
+// ---------- PUBLIC CCTV / WEBCAM TOGGLE ----------
+const btnCameras = document.getElementById("btn-cameras");
+let camerasOn = false;
+btnCameras &&
+  btnCameras.addEventListener("click", async () => {
+    if (!camerasOn) {
+      camerasOn = true;
+      btnCameras.classList.add("active");
+      feed("warn", "CCTV :: loading public camera feeds...");
+      await window.GideonsEarth.cameras.load();
+    } else {
+      window.GideonsEarth.cameras.clear();
+      camerasOn = false;
+      btnCameras.classList.remove("active");
+      feed("warn", "CCTV :: cameras cleared");
+    }
+  });
+
 // ---------- CESIUM ION UPLOAD (drag-drop 3D models) ----------
 // Uploads a file to your Ion account using the official multi-step flow:
 //   1) POST /v1/assets → get tempToken + S3 upload location

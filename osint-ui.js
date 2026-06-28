@@ -24,20 +24,28 @@
   function extractOGMeta(html) {
     const get = (props) => {
       for (const p of props) {
-        const m = html.match(new RegExp(
-          `<meta[^>]+(?:property|name)=["']${p}["'][^>]+content=["']([^"']{1,300})["']`, "i"
-        )) || html.match(new RegExp(
-          `<meta[^>]+content=["']([^"']{1,300})["'][^>]+(?:property|name)=["']${p}["']`, "i"
-        ));
+        const m =
+          html.match(
+            new RegExp(
+              `<meta[^>]+(?:property|name)=["']${p}["'][^>]+content=["']([^"']{1,300})["']`,
+              "i",
+            ),
+          ) ||
+          html.match(
+            new RegExp(
+              `<meta[^>]+content=["']([^"']{1,300})["'][^>]+(?:property|name)=["']${p}["']`,
+              "i",
+            ),
+          );
         if (m?.[1]) return m[1];
       }
       return null;
     };
-    const name    = get(["og:title","twitter:title"]);
-    const bio     = get(["og:description","twitter:description","description"]);
-    const avatar  = get(["og:image","twitter:image"]);
+    const name = get(["og:title", "twitter:title"]);
+    const bio = get(["og:description", "twitter:description", "description"]);
+    const avatar = get(["og:image", "twitter:image"]);
     if (!name && !bio && !avatar) return null;
-    return { name, bio: bio?.slice(0,140), avatar };
+    return { name, bio: bio?.slice(0, 140), avatar };
   }
 
   // CORS-aware OG fetch with proxy fallback
@@ -51,15 +59,23 @@
       const ctrl = new AbortController();
       setTimeout(() => ctrl.abort(), 5000);
       const r = await fetch(url, { mode: "cors", signal: ctrl.signal });
-      if (r.ok) { const og = extractOGMeta(await r.text()); if (og) return og; }
+      if (r.ok) {
+        const og = extractOGMeta(await r.text());
+        if (og) return og;
+      }
     } catch {}
     // Proxy fallback
     for (const proxy of CORS_PROXIES) {
       try {
         const ctrl = new AbortController();
         setTimeout(() => ctrl.abort(), 8000);
-        const r = await fetch(proxy + encodeURIComponent(url), { signal: ctrl.signal });
-        if (r.ok) { const og = extractOGMeta(await r.text()); if (og) return og; }
+        const r = await fetch(proxy + encodeURIComponent(url), {
+          signal: ctrl.signal,
+        });
+        if (r.ok) {
+          const og = extractOGMeta(await r.text());
+          if (og) return og;
+        }
         break;
       } catch {}
     }
@@ -67,209 +83,406 @@
   }
 
   const PROFILE_APIS = {
-
     // ── DEVELOPER PLATFORMS ──────────────────────────────────────────────────
-    "GitHub": async (u) => {
-      const r = await fetch(`https://api.github.com/users/${encodeURIComponent(u)}`);
+    GitHub: async (u) => {
+      const r = await fetch(
+        `https://api.github.com/users/${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.name, bio: d.bio, avatar: d.avatar_url, id: String(d.id),
-               followers: d.followers, repos: d.public_repos, location: d.location,
-               company: d.company, blog: d.blog, created: d.created_at?.slice(0,10) };
+      return {
+        name: d.name,
+        bio: d.bio,
+        avatar: d.avatar_url,
+        id: String(d.id),
+        followers: d.followers,
+        repos: d.public_repos,
+        location: d.location,
+        company: d.company,
+        blog: d.blog,
+        created: d.created_at?.slice(0, 10),
+      };
     },
-    "GitLab": async (u) => {
-      const r = await fetch(`https://gitlab.com/api/v4/users?username=${encodeURIComponent(u)}`);
+    GitLab: async (u) => {
+      const r = await fetch(
+        `https://gitlab.com/api/v4/users?username=${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json())?.[0]; if (!d) return null;
-      return { name: d.name, bio: d.bio, avatar: d.avatar_url, id: String(d.id),
-               location: d.location, created: d.created_at?.slice(0,10) };
+      const d = (await r.json())?.[0];
+      if (!d) return null;
+      return {
+        name: d.name,
+        bio: d.bio,
+        avatar: d.avatar_url,
+        id: String(d.id),
+        location: d.location,
+        created: d.created_at?.slice(0, 10),
+      };
     },
-    "Bitbucket": async (u) => {
-      const r = await fetch(`https://api.bitbucket.org/2.0/users/${encodeURIComponent(u)}`);
+    Bitbucket: async (u) => {
+      const r = await fetch(
+        `https://api.bitbucket.org/2.0/users/${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.display_name, bio: d.description, avatar: d.links?.avatar?.href,
-               id: d.account_id?.slice(0,16), location: d.location, created: d.created_on?.slice(0,10) };
+      return {
+        name: d.display_name,
+        bio: d.description,
+        avatar: d.links?.avatar?.href,
+        id: d.account_id?.slice(0, 16),
+        location: d.location,
+        created: d.created_on?.slice(0, 10),
+      };
     },
-    "Codeberg": async (u) => {
-      const r = await fetch(`https://codeberg.org/api/v1/users/${encodeURIComponent(u)}`);
+    Codeberg: async (u) => {
+      const r = await fetch(
+        `https://codeberg.org/api/v1/users/${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.full_name || d.login, bio: d.description, avatar: d.avatar_url,
-               id: String(d.id), location: d.location, followers: d.followers_count,
-               repos: d.repos_count, created: d.created?.slice(0,10), blog: d.website };
+      return {
+        name: d.full_name || d.login,
+        bio: d.description,
+        avatar: d.avatar_url,
+        id: String(d.id),
+        location: d.location,
+        followers: d.followers_count,
+        repos: d.repos_count,
+        created: d.created?.slice(0, 10),
+        blog: d.website,
+      };
     },
-    "NPM": async (u) => {
-      const r = await fetch(`https://registry.npmjs.org/-/user/org.couchdb.user:${encodeURIComponent(u)}`);
+    NPM: async (u) => {
+      const r = await fetch(
+        `https://registry.npmjs.org/-/user/org.couchdb.user:${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
       return { name: d.name, email: d.email, id: d.name };
     },
     "Dev.to": async (u) => {
-      const r = await fetch(`https://dev.to/api/users/by_username?url=${encodeURIComponent(u)}`);
+      const r = await fetch(
+        `https://dev.to/api/users/by_username?url=${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.name, bio: d.summary, avatar: d.profile_image,
-               id: String(d.id), location: d.location };
+      return {
+        name: d.name,
+        bio: d.summary,
+        avatar: d.profile_image,
+        id: String(d.id),
+        location: d.location,
+      };
     },
-    "CodeForces": async (u) => {
-      const r = await fetch(`https://codeforces.com/api/user.info?handles=${encodeURIComponent(u)}`);
+    CodeForces: async (u) => {
+      const r = await fetch(
+        `https://codeforces.com/api/user.info?handles=${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).result?.[0]; if (!d) return null;
+      const d = (await r.json()).result?.[0];
+      if (!d) return null;
       const av = d.avatar?.startsWith("//") ? "https:" + d.avatar : d.avatar;
-      return { name: (`${d.firstName||""} ${d.lastName||""}`).trim() || d.handle,
-               id: d.handle, avatar: av, karma: d.rating,
-               location: [d.city, d.country].filter(Boolean).join(", ") || null };
+      return {
+        name: `${d.firstName || ""} ${d.lastName || ""}`.trim() || d.handle,
+        id: d.handle,
+        avatar: av,
+        karma: d.rating,
+        location: [d.city, d.country].filter(Boolean).join(", ") || null,
+      };
     },
-    "StackOverflow": async (u) => {
-      const r = await fetch(`https://api.stackexchange.com/2.3/users?order=desc&sort=reputation&inname=${encodeURIComponent(u)}&site=stackoverflow`);
+    StackOverflow: async (u) => {
+      const r = await fetch(
+        `https://api.stackexchange.com/2.3/users?order=desc&sort=reputation&inname=${encodeURIComponent(u)}&site=stackoverflow`,
+      );
       if (!r.ok) return null;
       const items = (await r.json()).items;
-      const d = items?.find(i => i.display_name.toLowerCase() === u.toLowerCase()) || items?.[0];
+      const d =
+        items?.find((i) => i.display_name.toLowerCase() === u.toLowerCase()) ||
+        items?.[0];
       if (!d) return null;
-      return { name: d.display_name, avatar: d.profile_image, id: String(d.user_id),
-               karma: d.reputation, location: d.location,
-               created: new Date((d.creation_date||0)*1000).toISOString().slice(0,10) };
+      return {
+        name: d.display_name,
+        avatar: d.profile_image,
+        id: String(d.user_id),
+        karma: d.reputation,
+        location: d.location,
+        created: new Date((d.creation_date || 0) * 1000)
+          .toISOString()
+          .slice(0, 10),
+      };
     },
     "Hacker News": async (u) => {
-      const r = await fetch(`https://hacker-news.firebaseio.com/v1/user/${encodeURIComponent(u)}.json`);
+      const r = await fetch(
+        `https://hacker-news.firebaseio.com/v1/user/${encodeURIComponent(u)}.json`,
+      );
       if (!r.ok) return null;
-      const d = await r.json(); if (!d) return null;
-      return { name: d.id, id: d.id, karma: d.karma,
-               bio: d.about ? d.about.replace(/<[^>]+>/g,"").slice(0,120) : null,
-               created: new Date((d.created||0)*1000).toISOString().slice(0,10) };
+      const d = await r.json();
+      if (!d) return null;
+      return {
+        name: d.id,
+        id: d.id,
+        karma: d.karma,
+        bio: d.about ? d.about.replace(/<[^>]+>/g, "").slice(0, 120) : null,
+        created: new Date((d.created || 0) * 1000).toISOString().slice(0, 10),
+      };
     },
-    "Keybase": async (u) => {
-      const r = await fetch(`https://keybase.io/_/api/1.0/user/lookup.json?username=${encodeURIComponent(u)}`);
+    Keybase: async (u) => {
+      const r = await fetch(
+        `https://keybase.io/_/api/1.0/user/lookup.json?username=${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).them; if (!d) return null;
-      return { name: d.profile?.full_name, bio: d.profile?.bio,
-               avatar: d.pictures?.primary?.url, id: d.id, location: d.profile?.location };
+      const d = (await r.json()).them;
+      if (!d) return null;
+      return {
+        name: d.profile?.full_name,
+        bio: d.profile?.bio,
+        avatar: d.pictures?.primary?.url,
+        id: d.id,
+        location: d.profile?.location,
+      };
     },
-    "HackerRank": async (u) => {
-      const r = await fetch(`https://www.hackerrank.com/rest/hackers/${encodeURIComponent(u)}/profile`);
+    HackerRank: async (u) => {
+      const r = await fetch(
+        `https://www.hackerrank.com/rest/hackers/${encodeURIComponent(u)}/profile`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).model; if (!d) return null;
-      return { name: d.name, bio: d.short_bio, avatar: d.avatar,
-               id: d.username, followers: d.followers_count, location: d.country };
+      const d = (await r.json()).model;
+      if (!d) return null;
+      return {
+        name: d.name,
+        bio: d.short_bio,
+        avatar: d.avatar,
+        id: d.username,
+        followers: d.followers_count,
+        location: d.country,
+      };
     },
-    "LeetCode": async (u) => {
+    LeetCode: async (u) => {
       const r = await fetch("https://leetcode.com/graphql", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: `{matchedUser(username:"${u}"){username profile{realName aboutMe userAvatar countryName company school ranking}}}` })
+        body: JSON.stringify({
+          query: `{matchedUser(username:"${u}"){username profile{realName aboutMe userAvatar countryName company school ranking}}}`,
+        }),
       });
       if (!r.ok) return null;
-      const p = (await r.json()).data?.matchedUser?.profile; if (!p) return null;
-      return { name: p.realName, bio: p.aboutMe, avatar: p.userAvatar,
-               location: p.countryName, company: p.company, id: u, karma: p.ranking };
+      const p = (await r.json()).data?.matchedUser?.profile;
+      if (!p) return null;
+      return {
+        name: p.realName,
+        bio: p.aboutMe,
+        avatar: p.userAvatar,
+        location: p.countryName,
+        company: p.company,
+        id: u,
+        karma: p.ranking,
+      };
     },
-    "Replit": async (u) => {
-      const r = await fetch(`https://replit.com/api/v0/users/search?query=${encodeURIComponent(u)}`);
+    Replit: async (u) => {
+      const r = await fetch(
+        `https://replit.com/api/v0/users/search?query=${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).users?.find(x => x.username?.toLowerCase() === u.toLowerCase());
+      const d = (await r.json()).users?.find(
+        (x) => x.username?.toLowerCase() === u.toLowerCase(),
+      );
       if (!d) return null;
-      return { name: d.name, bio: d.bio, avatar: d.image, id: String(d.id),
-               followers: d.followerCount, location: d.country };
+      return {
+        name: d.name,
+        bio: d.bio,
+        avatar: d.image,
+        id: String(d.id),
+        followers: d.followerCount,
+        location: d.country,
+      };
     },
 
     // ── GAMING ───────────────────────────────────────────────────────────────
     "Chess.com": async (u) => {
-      const r = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(u.toLowerCase())}`);
+      const r = await fetch(
+        `https://api.chess.com/pub/player/${encodeURIComponent(u.toLowerCase())}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.name, id: d.username, avatar: d.avatar, location: d.location,
-               bio: d.title ? `Title: ${d.title}` : null,
-               created: new Date((d.joined||0)*1000).toISOString().slice(0,10),
-               followers: d.followers };
+      return {
+        name: d.name,
+        id: d.username,
+        avatar: d.avatar,
+        location: d.location,
+        bio: d.title ? `Title: ${d.title}` : null,
+        created: new Date((d.joined || 0) * 1000).toISOString().slice(0, 10),
+        followers: d.followers,
+      };
     },
-    "Lichess": async (u) => {
-      const r = await fetch(`https://lichess.org/api/user/${encodeURIComponent(u)}`);
+    Lichess: async (u) => {
+      const r = await fetch(
+        `https://lichess.org/api/user/${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      const topRating = Object.values(d.perfs||{}).filter(p=>p.games>0).sort((a,b)=>b.rating-a.rating)[0];
-      return { name: d.username, id: d.id, bio: d.profile?.bio,
-               location: [d.profile?.firstName, d.profile?.lastName].filter(Boolean).join(" ") || d.profile?.country,
-               followers: d.nbFollowers, karma: topRating?.rating };
+      const topRating = Object.values(d.perfs || {})
+        .filter((p) => p.games > 0)
+        .sort((a, b) => b.rating - a.rating)[0];
+      return {
+        name: d.username,
+        id: d.id,
+        bio: d.profile?.bio,
+        location:
+          [d.profile?.firstName, d.profile?.lastName]
+            .filter(Boolean)
+            .join(" ") || d.profile?.country,
+        followers: d.nbFollowers,
+        karma: topRating?.rating,
+      };
     },
-    "Roblox": async (u) => {
+    Roblox: async (u) => {
       const r1 = await fetch("https://users.roblox.com/v1/usernames/users", {
-        method: "POST", headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ usernames: [u], excludeBannedUsers: false })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usernames: [u], excludeBannedUsers: false }),
       });
       if (!r1.ok) return null;
-      const id = (await r1.json()).data?.[0]?.id; if (!id) return null;
+      const id = (await r1.json()).data?.[0]?.id;
+      if (!id) return null;
       const r2 = await fetch(`https://users.roblox.com/v1/users/${id}`);
       if (!r2.ok) return null;
       const d = await r2.json();
-      const r3 = await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${id}&size=150x150&format=Png`);
+      const r3 = await fetch(
+        `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${id}&size=150x150&format=Png`,
+      );
       const av = r3.ok ? (await r3.json()).data?.[0]?.imageUrl : null;
-      return { name: d.displayName, id: String(d.id), bio: d.description?.slice(0,120),
-               avatar: av, created: d.created?.slice(0,10) };
+      return {
+        name: d.displayName,
+        id: String(d.id),
+        bio: d.description?.slice(0, 120),
+        avatar: av,
+        created: d.created?.slice(0, 10),
+      };
     },
-    "Steam": async (u) => {
-      const r = await fetch(`https://steamcommunity.com/id/${encodeURIComponent(u)}/?xml=1`);
+    Steam: async (u) => {
+      const r = await fetch(
+        `https://steamcommunity.com/id/${encodeURIComponent(u)}/?xml=1`,
+      );
       if (!r.ok) return null;
       const txt = await r.text();
-      const get = (tag) => txt.match(new RegExp(`<${tag}><!\\[CDATA\\[([^\\]]+)\\]\\]></${tag}>`))?.[1]
-                        || txt.match(new RegExp(`<${tag}>([^<]+)</${tag}>`))?.[1];
-      if (get("privacyState") === "private") return { name: get("steamID"), id: get("steamID64"), bio: "Private profile" };
-      return { name: get("steamID"), id: get("steamID64"), bio: get("summary")?.slice(0,120),
-               avatar: get("avatarFull"), location: get("location"),
-               created: get("memberSince") };
+      const get = (tag) =>
+        txt.match(
+          new RegExp(`<${tag}><!\\[CDATA\\[([^\\]]+)\\]\\]></${tag}>`),
+        )?.[1] || txt.match(new RegExp(`<${tag}>([^<]+)</${tag}>`))?.[1];
+      if (get("privacyState") === "private")
+        return {
+          name: get("steamID"),
+          id: get("steamID64"),
+          bio: "Private profile",
+        };
+      return {
+        name: get("steamID"),
+        id: get("steamID64"),
+        bio: get("summary")?.slice(0, 120),
+        avatar: get("avatarFull"),
+        location: get("location"),
+        created: get("memberSince"),
+      };
     },
-    "Duolingo": async (u) => {
-      const r = await fetch(`https://www.duolingo.com/2017-06-30/users?username=${encodeURIComponent(u)}`);
+    Duolingo: async (u) => {
+      const r = await fetch(
+        `https://www.duolingo.com/2017-06-30/users?username=${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).users?.[0]; if (!d) return null;
-      return { name: d.name, id: String(d.id), avatar: d.picture?.replace("//","https://"),
-               bio: `Streak: ${d.streak_length||0} days · XP: ${(d.total_xp||0).toLocaleString()}` };
+      const d = (await r.json()).users?.[0];
+      if (!d) return null;
+      return {
+        name: d.name,
+        id: String(d.id),
+        avatar: d.picture?.replace("//", "https://"),
+        bio: `Streak: ${d.streak_length || 0} days · XP: ${(d.total_xp || 0).toLocaleString()}`,
+      };
     },
 
     // ── CREATIVE / SOCIAL ────────────────────────────────────────────────────
-    "Reddit": async (u) => {
-      const r = await fetch(`https://www.reddit.com/user/${encodeURIComponent(u)}/about.json`);
+    Reddit: async (u) => {
+      const r = await fetch(
+        `https://www.reddit.com/user/${encodeURIComponent(u)}/about.json`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).data; if (!d) return null;
-      return { name: d.name, id: d.id,
-               karma: (d.link_karma||0)+(d.comment_karma||0),
-               avatar: d.icon_img?.split("?")[0] || null,
-               created: new Date((d.created_utc||0)*1000).toISOString().slice(0,10) };
+      const d = (await r.json()).data;
+      if (!d) return null;
+      return {
+        name: d.name,
+        id: d.id,
+        karma: (d.link_karma || 0) + (d.comment_karma || 0),
+        avatar: d.icon_img?.split("?")[0] || null,
+        created: new Date((d.created_utc || 0) * 1000)
+          .toISOString()
+          .slice(0, 10),
+      };
     },
     "Mastodon (mastodon.social)": async (u) => {
-      const r = await fetch(`https://mastodon.social/api/v1/accounts/lookup?acct=${encodeURIComponent(u)}`);
+      const r = await fetch(
+        `https://mastodon.social/api/v1/accounts/lookup?acct=${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.display_name, bio: d.note?.replace(/<[^>]+>/g,"").slice(0,120),
-               avatar: d.avatar, followers: d.followers_count,
-               id: d.id, created: d.created_at?.slice(0,10) };
+      return {
+        name: d.display_name,
+        bio: d.note?.replace(/<[^>]+>/g, "").slice(0, 120),
+        avatar: d.avatar,
+        followers: d.followers_count,
+        id: d.id,
+        created: d.created_at?.slice(0, 10),
+      };
     },
-    "Mixcloud": async (u) => {
-      const r = await fetch(`https://api.mixcloud.com/${encodeURIComponent(u)}/`);
+    Mixcloud: async (u) => {
+      const r = await fetch(
+        `https://api.mixcloud.com/${encodeURIComponent(u)}/`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.name, bio: d.biog?.slice(0,120), avatar: d.pictures?.large,
-               followers: d.follower_count,
-               location: [d.city, d.country].filter(Boolean).join(", ") || null };
+      return {
+        name: d.name,
+        bio: d.biog?.slice(0, 120),
+        avatar: d.pictures?.large,
+        followers: d.follower_count,
+        location: [d.city, d.country].filter(Boolean).join(", ") || null,
+      };
     },
-    "Dailymotion": async (u) => {
-      const r = await fetch(`https://api.dailymotion.com/user/${encodeURIComponent(u)}?fields=id,username,fullname,description,avatar_720_url,followers_total,country,created_time`);
+    Dailymotion: async (u) => {
+      const r = await fetch(
+        `https://api.dailymotion.com/user/${encodeURIComponent(u)}?fields=id,username,fullname,description,avatar_720_url,followers_total,country,created_time`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.fullname || d.username, bio: d.description?.slice(0,120),
-               avatar: d.avatar_720_url, followers: d.followers_total,
-               location: d.country, id: d.id,
-               created: d.created_time ? new Date(d.created_time*1000).toISOString().slice(0,10) : null };
+      return {
+        name: d.fullname || d.username,
+        bio: d.description?.slice(0, 120),
+        avatar: d.avatar_720_url,
+        followers: d.followers_total,
+        location: d.country,
+        id: d.id,
+        created: d.created_time
+          ? new Date(d.created_time * 1000).toISOString().slice(0, 10)
+          : null,
+      };
     },
-    "Gravatar": async (u) => {
-      const r = await fetch(`https://en.gravatar.com/${encodeURIComponent(u)}.json`);
+    Gravatar: async (u) => {
+      const r = await fetch(
+        `https://en.gravatar.com/${encodeURIComponent(u)}.json`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).entry?.[0]; if (!d) return null;
-      return { name: d.displayName, bio: d.aboutMe, avatar: d.thumbnailUrl,
-               id: d.id, location: d.currentLocation };
+      const d = (await r.json()).entry?.[0];
+      if (!d) return null;
+      return {
+        name: d.displayName,
+        bio: d.aboutMe,
+        avatar: d.thumbnailUrl,
+        id: d.id,
+        location: d.currentLocation,
+      };
     },
-    "WordPress": async (u) => {
-      const r = await fetch(`https://public-api.wordpress.com/rest/v1.1/sites/${encodeURIComponent(u)}.wordpress.com/`);
+    WordPress: async (u) => {
+      const r = await fetch(
+        `https://public-api.wordpress.com/rest/v1.1/sites/${encodeURIComponent(u)}.wordpress.com/`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
       return { name: d.name, bio: d.description, id: String(d.ID) };
@@ -277,274 +490,442 @@
 
     // ── MUSIC ────────────────────────────────────────────────────────────────
     "Last.fm": async (u) => {
-      const r = await fetch(`https://ws.audioscrobbler.com/2.0/?method=user.getinfo&user=${encodeURIComponent(u)}&api_key=c8571352e63bb9e4aaea2bc5c7ebdb39&format=json`);
+      const r = await fetch(
+        `https://ws.audioscrobbler.com/2.0/?method=user.getinfo&user=${encodeURIComponent(u)}&api_key=c8571352e63bb9e4aaea2bc5c7ebdb39&format=json`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).user; if (!d) return null;
-      return { name: d.realname || d.name, id: d.name, avatar: d.image?.slice(-1)[0]?.["#text"],
-               followers: d.subscriber, location: d.country,
-               karma: parseInt(d.playcount||0), created: d.registered?.["#text"]?.slice(0,10) };
+      const d = (await r.json()).user;
+      if (!d) return null;
+      return {
+        name: d.realname || d.name,
+        id: d.name,
+        avatar: d.image?.slice(-1)[0]?.["#text"],
+        followers: d.subscriber,
+        location: d.country,
+        karma: parseInt(d.playcount || 0),
+        created: d.registered?.["#text"]?.slice(0, 10),
+      };
     },
-    "SoundCloud": async (u) => {
+    SoundCloud: async (u) => {
       return await _ogFetch(`https://soundcloud.com/${encodeURIComponent(u)}`);
     },
 
     // ── MISC PLATFORMS ───────────────────────────────────────────────────────
-    "Spotify": async (u) => {
-      return await _ogFetch(`https://open.spotify.com/artist/${encodeURIComponent(u)}`);
+    Spotify: async (u) => {
+      return await _ogFetch(
+        `https://open.spotify.com/artist/${encodeURIComponent(u)}`,
+      );
     },
 
     // ── ANIME / ENTERTAINMENT ─────────────────────────────────────────────────
-    "AniList": async (u) => {
+    AniList: async (u) => {
       const r = await fetch("https://graphql.anilist.co", {
-        method: "POST", headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ query: `{User(name:"${u}"){id name avatar{large}about siteUrl statistics{anime{count}manga{count}}}}` })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `{User(name:"${u}"){id name avatar{large}about siteUrl statistics{anime{count}manga{count}}}}`,
+        }),
       });
       if (!r.ok) return null;
-      const d = (await r.json()).data?.User; if (!d) return null;
-      return { name: d.name, bio: d.about?.replace(/<[^>]+>/g,"").slice(0,120),
-               avatar: d.avatar?.large, id: String(d.id),
-               karma: `${d.statistics?.anime?.count||0} anime · ${d.statistics?.manga?.count||0} manga` };
+      const d = (await r.json()).data?.User;
+      if (!d) return null;
+      return {
+        name: d.name,
+        bio: d.about?.replace(/<[^>]+>/g, "").slice(0, 120),
+        avatar: d.avatar?.large,
+        id: String(d.id),
+        karma: `${d.statistics?.anime?.count || 0} anime · ${d.statistics?.manga?.count || 0} manga`,
+      };
     },
-    "Kitsu": async (u) => {
-      const r = await fetch(`https://kitsu.io/api/edge/users?filter[name]=${encodeURIComponent(u)}`);
+    Kitsu: async (u) => {
+      const r = await fetch(
+        `https://kitsu.io/api/edge/users?filter[name]=${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).data?.[0]; if (!d) return null;
+      const d = (await r.json()).data?.[0];
+      if (!d) return null;
       const a = d.attributes;
-      return { name: a.name, bio: a.about?.slice(0,120), avatar: a.avatar?.original,
-               id: d.id, location: a.location, followers: a.followersCount,
-               created: a.createdAt?.slice(0,10) };
+      return {
+        name: a.name,
+        bio: a.about?.slice(0, 120),
+        avatar: a.avatar?.original,
+        id: d.id,
+        location: a.location,
+        followers: a.followersCount,
+        created: a.createdAt?.slice(0, 10),
+      };
     },
-    "Trakt": async (u) => {
-      const r = await fetch(`https://api.trakt.tv/users/${encodeURIComponent(u)}`, {
-        headers: { "trakt-api-version": "2", "trakt-api-key": "ed3046ea06d033a935f39ab4f2ab8f7880e98e0b6faa3e4ec80e1eef1e5e4f9b" }
-      });
+    Trakt: async (u) => {
+      const r = await fetch(
+        `https://api.trakt.tv/users/${encodeURIComponent(u)}`,
+        {
+          headers: {
+            "trakt-api-version": "2",
+            "trakt-api-key":
+              "ed3046ea06d033a935f39ab4f2ab8f7880e98e0b6faa3e4ec80e1eef1e5e4f9b",
+          },
+        },
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.name, bio: d.about?.slice(0,120), avatar: d.images?.avatar?.full,
-               id: d.username, location: d.location, joined: d.joined_at?.slice(0,10) };
+      return {
+        name: d.name,
+        bio: d.about?.slice(0, 120),
+        avatar: d.images?.avatar?.full,
+        id: d.username,
+        location: d.location,
+        joined: d.joined_at?.slice(0, 10),
+      };
     },
-    "MyAnimeList": async (u) => {
-      const r = await fetch(`https://api.myanimelist.net/v2/users/${encodeURIComponent(u)}?fields=name,picture,location,joined_at,anime_statistics`, {
-        headers: { "X-MAL-CLIENT-ID": "6114d00ca681b7701d1e15fe11a4987e" }
-      });
+    MyAnimeList: async (u) => {
+      const r = await fetch(
+        `https://api.myanimelist.net/v2/users/${encodeURIComponent(u)}?fields=name,picture,location,joined_at,anime_statistics`,
+        {
+          headers: { "X-MAL-CLIENT-ID": "6114d00ca681b7701d1e15fe11a4987e" },
+        },
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.name, avatar: d.picture, location: d.location,
-               id: d.name, created: d.joined_at?.slice(0,10),
-               karma: `${d.anime_statistics?.num_items||0} anime` };
+      return {
+        name: d.name,
+        avatar: d.picture,
+        location: d.location,
+        id: d.name,
+        created: d.joined_at?.slice(0, 10),
+        karma: `${d.anime_statistics?.num_items || 0} anime`,
+      };
     },
-    "Letterboxd": async (u) => {
+    Letterboxd: async (u) => {
       return await _ogFetch(`https://letterboxd.com/${encodeURIComponent(u)}/`);
     },
-    "Goodreads": async (u) => {
-      return await _ogFetch(`https://www.goodreads.com/${encodeURIComponent(u)}`);
+    Goodreads: async (u) => {
+      return await _ogFetch(
+        `https://www.goodreads.com/${encodeURIComponent(u)}`,
+      );
     },
 
     // ── SPEEDRUNNING / GAMING ─────────────────────────────────────────────────
     "Speedrun.com": async (u) => {
-      const r = await fetch(`https://www.speedrun.com/api/v1/users/${encodeURIComponent(u)}`);
+      const r = await fetch(
+        `https://www.speedrun.com/api/v1/users/${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).data; if (!d) return null;
-      return { name: d.names?.international, id: d.id, avatar: d.assets?.image?.uri,
-               location: d.location?.country?.names?.international, blog: d.weblink };
+      const d = (await r.json()).data;
+      if (!d) return null;
+      return {
+        name: d.names?.international,
+        id: d.id,
+        avatar: d.assets?.image?.uri,
+        location: d.location?.country?.names?.international,
+        blog: d.weblink,
+      };
     },
-    "Modrinth": async (u) => {
-      const r = await fetch(`https://api.modrinth.com/v2/user/${encodeURIComponent(u)}`);
+    Modrinth: async (u) => {
+      const r = await fetch(
+        `https://api.modrinth.com/v2/user/${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.name || d.username, bio: d.bio?.slice(0,120), id: d.id,
-               created: d.created?.slice(0,10), followers: d.followers_count };
+      return {
+        name: d.name || d.username,
+        bio: d.bio?.slice(0, 120),
+        id: d.id,
+        created: d.created?.slice(0, 10),
+        followers: d.followers_count,
+      };
     },
-    "ArtStation": async (u) => {
-      const r = await fetch(`https://www.artstation.com/users/${encodeURIComponent(u)}/quick.json`);
+    ArtStation: async (u) => {
+      const r = await fetch(
+        `https://www.artstation.com/users/${encodeURIComponent(u)}/quick.json`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.full_name, bio: d.headline?.slice(0,120), avatar: d.large_avatar_url,
-               id: String(d.id), location: d.city ? `${d.city}, ${d.country}` : d.country,
-               followers: d.followers_count, created: d.created_at?.slice(0,10) };
+      return {
+        name: d.full_name,
+        bio: d.headline?.slice(0, 120),
+        avatar: d.large_avatar_url,
+        id: String(d.id),
+        location: d.city ? `${d.city}, ${d.country}` : d.country,
+        followers: d.followers_count,
+        created: d.created_at?.slice(0, 10),
+      };
     },
     "itch.io": async (u) => {
       return await _ogFetch(`https://${encodeURIComponent(u)}.itch.io/`);
     },
-    "Newgrounds": async (u) => {
+    Newgrounds: async (u) => {
       return await _ogFetch(`https://${encodeURIComponent(u)}.newgrounds.com/`);
     },
 
     // ── OPEN SOURCE / PACKAGE MANAGERS ───────────────────────────────────────
     "Docker Hub": async (u) => {
-      const r = await fetch(`https://hub.docker.com/v2/users/${encodeURIComponent(u)}/`);
+      const r = await fetch(
+        `https://hub.docker.com/v2/users/${encodeURIComponent(u)}/`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.full_name || d.username, bio: d.company ? `Company: ${d.company}` : null,
-               id: d.id, location: d.location,
-               followers: d.followers_count, karma: d.num_public_repos,
-               created: d.date_joined?.slice(0,10) };
+      return {
+        name: d.full_name || d.username,
+        bio: d.company ? `Company: ${d.company}` : null,
+        id: d.id,
+        location: d.location,
+        followers: d.followers_count,
+        karma: d.num_public_repos,
+        created: d.date_joined?.slice(0, 10),
+      };
     },
-    "RubyGems": async (u) => {
-      const r = await fetch(`https://rubygems.org/api/v1/profiles/${encodeURIComponent(u)}.json`);
+    RubyGems: async (u) => {
+      const r = await fetch(
+        `https://rubygems.org/api/v1/profiles/${encodeURIComponent(u)}.json`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.display_name, id: d.handle, email: d.email,
-               created: d.created_at?.slice(0,10) };
+      return {
+        name: d.display_name,
+        id: d.handle,
+        email: d.email,
+        created: d.created_at?.slice(0, 10),
+      };
     },
-    "PyPI": async (u) => {
+    PyPI: async (u) => {
       return await _ogFetch(`https://pypi.org/user/${encodeURIComponent(u)}/`);
     },
-    "Launchpad": async (u) => {
-      const r = await fetch(`https://api.launchpad.net/1.0/~${encodeURIComponent(u)}`);
+    Launchpad: async (u) => {
+      const r = await fetch(
+        `https://api.launchpad.net/1.0/~${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
-      return { name: d.display_name, bio: d.description?.slice(0,120), id: d.name,
-               karma: d.karma, location: d.time_zone,
-               created: d.date_created?.slice(0,10) };
+      return {
+        name: d.display_name,
+        bio: d.description?.slice(0, 120),
+        id: d.name,
+        karma: d.karma,
+        location: d.time_zone,
+        created: d.date_created?.slice(0, 10),
+      };
     },
-    "Packagist": async (u) => {
-      return await _ogFetch(`https://packagist.org/users/${encodeURIComponent(u)}/`);
+    Packagist: async (u) => {
+      return await _ogFetch(
+        `https://packagist.org/users/${encodeURIComponent(u)}/`,
+      );
     },
     "Crates.io": async (u) => {
-      const r = await fetch(`https://crates.io/api/v1/users/${encodeURIComponent(u)}`);
+      const r = await fetch(
+        `https://crates.io/api/v1/users/${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).user; if (!d) return null;
+      const d = (await r.json()).user;
+      if (!d) return null;
       return { name: d.name, avatar: d.avatar, id: String(d.id), blog: d.url };
     },
 
     // ── SOCIAL / CREATIVE ─────────────────────────────────────────────────────
-    "Minds": async (u) => {
-      const r = await fetch(`https://www.minds.com/api/v1/channel/${encodeURIComponent(u)}`);
+    Minds: async (u) => {
+      const r = await fetch(
+        `https://www.minds.com/api/v1/channel/${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
-      const d = (await r.json()).channel; if (!d) return null;
-      return { name: d.name, bio: d.briefdescription?.slice(0,120),
-               avatar: d.icontime ? `https://www.minds.com/fs/v1/avatars/${d.guid}/large/${d.icontime}` : null,
-               id: d.guid, followers: d.subscribers_count,
-               location: d.city || d.country,
-               created: new Date((d.time_created||0)*1000).toISOString().slice(0,10) };
+      const d = (await r.json()).channel;
+      if (!d) return null;
+      return {
+        name: d.name,
+        bio: d.briefdescription?.slice(0, 120),
+        avatar: d.icontime
+          ? `https://www.minds.com/fs/v1/avatars/${d.guid}/large/${d.icontime}`
+          : null,
+        id: d.guid,
+        followers: d.subscribers_count,
+        location: d.city || d.country,
+        created: new Date((d.time_created || 0) * 1000)
+          .toISOString()
+          .slice(0, 10),
+      };
     },
-    "Odysee": async (u) => {
-      const r = await fetch("https://api.odysee.com/api/v1/proxy?m=resolve&s=2", {
-        method: "POST", headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ method: "resolve", params: { urls: [`@${u}`] } })
-      });
+    Odysee: async (u) => {
+      const r = await fetch(
+        "https://api.odysee.com/api/v1/proxy?m=resolve&s=2",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            method: "resolve",
+            params: { urls: [`@${u}`] },
+          }),
+        },
+      );
       if (!r.ok) return null;
-      const d = Object.values((await r.json()).result||{})[0]; if (!d) return null;
-      return { name: d.value?.title || u, bio: d.value?.description?.slice(0,120),
-               id: d.claim_id, followers: d.meta?.claims_in_channel };
+      const d = Object.values((await r.json()).result || {})[0];
+      if (!d) return null;
+      return {
+        name: d.value?.title || u,
+        bio: d.value?.description?.slice(0, 120),
+        id: d.claim_id,
+        followers: d.meta?.claims_in_channel,
+      };
     },
-    "Wikipedia": async (u) => {
-      const r = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(u)}`);
+    Wikipedia: async (u) => {
+      const r = await fetch(
+        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(u)}`,
+      );
       if (!r.ok) return null;
       const d = await r.json();
       if (d.type === "disambiguation") return null;
-      return { name: d.title, bio: d.extract?.slice(0,200), avatar: d.thumbnail?.source, id: String(d.pageid) };
+      return {
+        name: d.title,
+        bio: d.extract?.slice(0, 200),
+        avatar: d.thumbnail?.source,
+        id: String(d.pageid),
+      };
     },
-    "ProductHunt": async (u) => {
-      return await _ogFetch(`https://www.producthunt.com/@${encodeURIComponent(u)}`);
+    ProductHunt: async (u) => {
+      return await _ogFetch(
+        `https://www.producthunt.com/@${encodeURIComponent(u)}`,
+      );
     },
     "About.me": async (u) => {
       return await _ogFetch(`https://about.me/${encodeURIComponent(u)}`);
     },
-    "Linktree": async (u) => {
+    Linktree: async (u) => {
       return await _ogFetch(`https://linktr.ee/${encodeURIComponent(u)}`);
     },
     "Ko-fi": async (u) => {
       return await _ogFetch(`https://ko-fi.com/${encodeURIComponent(u)}`);
     },
-    "Wattpad": async (u) => {
-      return await _ogFetch(`https://www.wattpad.com/user/${encodeURIComponent(u)}`);
+    Wattpad: async (u) => {
+      return await _ogFetch(
+        `https://www.wattpad.com/user/${encodeURIComponent(u)}`,
+      );
     },
-    "Substack": async (u) => {
+    Substack: async (u) => {
       return await _ogFetch(`https://${encodeURIComponent(u)}.substack.com`);
     },
-    "Tumblr": async (u) => {
+    Tumblr: async (u) => {
       return await _ogFetch(`https://${encodeURIComponent(u)}.tumblr.com`);
     },
-    "Pinterest": async (u) => {
-      return await _ogFetch(`https://www.pinterest.com/${encodeURIComponent(u)}/`);
+    Pinterest: async (u) => {
+      return await _ogFetch(
+        `https://www.pinterest.com/${encodeURIComponent(u)}/`,
+      );
     },
-    "Quora": async (u) => {
-      return await _ogFetch(`https://www.quora.com/profile/${encodeURIComponent(u)}`);
+    Quora: async (u) => {
+      return await _ogFetch(
+        `https://www.quora.com/profile/${encodeURIComponent(u)}`,
+      );
     },
-    "Fiverr": async (u) => {
+    Fiverr: async (u) => {
       return await _ogFetch(`https://www.fiverr.com/${encodeURIComponent(u)}`);
     },
-    "Patreon": async (u) => {
+    Patreon: async (u) => {
       return await _ogFetch(`https://www.patreon.com/${encodeURIComponent(u)}`);
     },
-    "Medium": async (u) => {
+    Medium: async (u) => {
       return await _ogFetch(`https://medium.com/@${encodeURIComponent(u)}`);
     },
-    "VSCO": async (u) => {
+    VSCO: async (u) => {
       return await _ogFetch(`https://vsco.co/${encodeURIComponent(u)}/gallery`);
     },
-    "Bandcamp": async (u) => {
+    Bandcamp: async (u) => {
       return await _ogFetch(`https://${encodeURIComponent(u)}.bandcamp.com`);
     },
-    "Flickr": async (u) => {
-      return await _ogFetch(`https://www.flickr.com/photos/${encodeURIComponent(u)}/`);
+    Flickr: async (u) => {
+      return await _ogFetch(
+        `https://www.flickr.com/photos/${encodeURIComponent(u)}/`,
+      );
     },
-    "Vimeo": async (u) => {
+    Vimeo: async (u) => {
       return await _ogFetch(`https://vimeo.com/${encodeURIComponent(u)}`);
     },
-    "Behance": async (u) => {
+    Behance: async (u) => {
       return await _ogFetch(`https://www.behance.net/${encodeURIComponent(u)}`);
     },
-    "Dribbble": async (u) => {
+    Dribbble: async (u) => {
       return await _ogFetch(`https://dribbble.com/${encodeURIComponent(u)}`);
     },
     "500px": async (u) => {
       return await _ogFetch(`https://500px.com/p/${encodeURIComponent(u)}`);
     },
-    "Poshmark": async (u) => {
-      return await _ogFetch(`https://poshmark.com/closet/${encodeURIComponent(u)}`);
+    Poshmark: async (u) => {
+      return await _ogFetch(
+        `https://poshmark.com/closet/${encodeURIComponent(u)}`,
+      );
     },
-    "Etsy": async (u) => {
-      return await _ogFetch(`https://www.etsy.com/shop/${encodeURIComponent(u)}`);
+    Etsy: async (u) => {
+      return await _ogFetch(
+        `https://www.etsy.com/shop/${encodeURIComponent(u)}`,
+      );
     },
-    "OpenCollective": async (u) => {
+    OpenCollective: async (u) => {
       const r = await fetch(`https://api.opencollective.com/graphql/v2`, {
-        method: "POST", headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ query: `{account(slug:"${u}"){id name slug description imageUrl location{country}stats{totalAmountReceived{value}}}}` })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `{account(slug:"${u}"){id name slug description imageUrl location{country}stats{totalAmountReceived{value}}}}`,
+        }),
       });
       if (!r.ok) return null;
-      const d = (await r.json()).data?.account; if (!d) return null;
-      return { name: d.name, bio: d.description?.slice(0,120), avatar: d.imageUrl,
-               id: d.id, location: d.location?.country };
+      const d = (await r.json()).data?.account;
+      if (!d) return null;
+      return {
+        name: d.name,
+        bio: d.description?.slice(0, 120),
+        avatar: d.imageUrl,
+        id: d.id,
+        location: d.location?.country,
+      };
     },
-    "ORCID": async (u) => {
-      const r = await fetch(`https://pub.orcid.org/v3.0/${encodeURIComponent(u)}/person`, {
-        headers: { "Accept": "application/json" }
-      });
+    ORCID: async (u) => {
+      const r = await fetch(
+        `https://pub.orcid.org/v3.0/${encodeURIComponent(u)}/person`,
+        {
+          headers: { Accept: "application/json" },
+        },
+      );
       if (!r.ok) return null;
       const d = await r.json();
       const name = d.name;
-      return { name: [name?.["given-names"]?.value, name?.["family-name"]?.value].filter(Boolean).join(" "),
-               id: u, bio: d.biography?.content?.slice(0,120) };
+      return {
+        name: [name?.["given-names"]?.value, name?.["family-name"]?.value]
+          .filter(Boolean)
+          .join(" "),
+        id: u,
+        bio: d.biography?.content?.slice(0, 120),
+      };
     },
-    "Twitch": async (u) => {
+    Twitch: async (u) => {
       return await _ogFetch(`https://www.twitch.tv/${encodeURIComponent(u)}`);
     },
-    "Kick": async (u) => {
+    Kick: async (u) => {
       return await _ogFetch(`https://kick.com/${encodeURIComponent(u)}`);
     },
-    "Instagram": async (u) => {
-      return await _ogFetch(`https://www.instagram.com/${encodeURIComponent(u)}/`);
+    Instagram: async (u) => {
+      return await _ogFetch(
+        `https://www.instagram.com/${encodeURIComponent(u)}/`,
+      );
     },
-    "TikTok": async (u) => {
+    TikTok: async (u) => {
       return await _ogFetch(`https://www.tiktok.com/@${encodeURIComponent(u)}`);
     },
-    "YouTube": async (u) => {
-      return await _ogFetch(`https://www.youtube.com/@${encodeURIComponent(u)}`);
+    YouTube: async (u) => {
+      return await _ogFetch(
+        `https://www.youtube.com/@${encodeURIComponent(u)}`,
+      );
     },
-    "Twitter": async (u) => {
+    Twitter: async (u) => {
       return await _ogFetch(`https://twitter.com/${encodeURIComponent(u)}`);
     },
     "X (Twitter)": async (u) => {
       return await _ogFetch(`https://x.com/${encodeURIComponent(u)}`);
     },
-    "Snapchat": async (u) => {
-      return await _ogFetch(`https://www.snapchat.com/add/${encodeURIComponent(u)}`);
+    Snapchat: async (u) => {
+      return await _ogFetch(
+        `https://www.snapchat.com/add/${encodeURIComponent(u)}`,
+      );
     },
-    "LinkedIn": async (u) => {
-      return await _ogFetch(`https://www.linkedin.com/in/${encodeURIComponent(u)}`);
+    LinkedIn: async (u) => {
+      return await _ogFetch(
+        `https://www.linkedin.com/in/${encodeURIComponent(u)}`,
+      );
     },
   };
 
@@ -556,7 +937,9 @@
       try {
         const d = await Promise.race([
           api(username),
-          new Promise((_,rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
+          new Promise((_, rej) =>
+            setTimeout(() => rej(new Error("timeout")), 8000),
+          ),
         ]);
         if (d) return d;
       } catch {}
@@ -572,8 +955,11 @@
   // ── END ENRICHMENT ENGINE ─────────────────────────────────────────────────
 
   function siteDomain(url) {
-    try { return new URL(url).hostname.replace(/^www\./, ""); }
-    catch { return ""; }
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return "";
+    }
   }
 
   function buildWMNCards(container, sites, statuses, username) {
@@ -610,7 +996,9 @@
             ? "✓ Found"
             : st === "not_found"
               ? "✗ Not found"
-              : "⟳ Probing…";
+              : st === "unknown"
+                ? "? Unknown"
+                : "⟳ Probing…";
 
         // Pull enriched profile data if available
         const prof = enriched.get(s.name);
@@ -620,20 +1008,31 @@
 
         // Build all available fields
         const rows = [
-          prof?.name     && prof.name !== container._wmnUsername ? iRow("Name", prof.name) : "",
-          iRow("Username",  container._wmnUsername),
-          prof?.id       ? iRow("ID",        prof.id)       : "",
-          prof?.bio      ? iRow("Bio",        prof.bio.slice(0, 100) + (prof.bio.length > 100 ? "…" : "")) : "",
-          prof?.location ? iRow("Location",   prof.location) : "",
-          prof?.company  ? iRow("Company",    prof.company)  : "",
-          prof?.email    ? iRow("Email",      prof.email)    : "",
-          prof?.blog     ? iRow("Website",    prof.blog)     : "",
-          prof?.followers != null ? iRow("Followers", Number(prof.followers).toLocaleString()) : "",
-          prof?.repos    != null  ? iRow("Repos",     prof.repos)     : "",
-          prof?.karma    != null  ? iRow("Karma",     Number(prof.karma).toLocaleString()) : "",
-          prof?.created  ? iRow("Joined",     prof.created)  : "",
-          !prof          ? iRow("Category",   s.category)    : "",
-          iRow("Status",    statusLabel),
+          prof?.name && prof.name !== container._wmnUsername
+            ? iRow("Name", prof.name)
+            : "",
+          iRow("Username", container._wmnUsername),
+          prof?.id ? iRow("ID", prof.id) : "",
+          prof?.bio
+            ? iRow(
+                "Bio",
+                prof.bio.slice(0, 100) + (prof.bio.length > 100 ? "…" : ""),
+              )
+            : "",
+          prof?.location ? iRow("Location", prof.location) : "",
+          prof?.company ? iRow("Company", prof.company) : "",
+          prof?.email ? iRow("Email", prof.email) : "",
+          prof?.blog ? iRow("Website", prof.blog) : "",
+          prof?.followers != null
+            ? iRow("Followers", Number(prof.followers).toLocaleString())
+            : "",
+          prof?.repos != null ? iRow("Repos", prof.repos) : "",
+          prof?.karma != null
+            ? iRow("Karma", Number(prof.karma).toLocaleString())
+            : "",
+          prof?.created ? iRow("Joined", prof.created) : "",
+          !prof ? iRow("Category", s.category) : "",
+          iRow("Status", statusLabel),
         ].join("");
 
         return `
@@ -692,19 +1091,31 @@
     });
 
     // Build a site-name → site-object lookup
-    const siteMap = Object.fromEntries(sites.map(s => [s.name, s]));
+    const siteMap = Object.fromEntries(sites.map((s) => [s.name, s]));
 
     let renderTimer = null;
     function scheduleRender() {
       if (renderTimer) return;
       renderTimer = setTimeout(() => {
         renderTimer = null;
-        buildWMNCards(container, container._wmnSites, statuses, container._wmnUsername);
+        buildWMNCards(
+          container,
+          container._wmnSites,
+          statuses,
+          container._wmnUsername,
+        );
       }, 150);
     }
 
     GI.usernameProbe(username, (hit) => {
-      statuses.set(hit.site, hit.status === "reachable" ? "found" : "not_found");
+      statuses.set(
+        hit.site,
+        hit.status === "found"
+          ? "found"
+          : hit.status === "not_found"
+            ? "not_found"
+            : "pending",
+      );
       scheduleRender();
 
       // For FOUND accounts, kick off enrichment in the background
@@ -712,12 +1123,14 @@
         enriched.set(hit.site, null); // mark as in-progress
         const site = siteMap[hit.site];
         if (site) {
-          enrichProfile(username, hit.site, site.url).then(prof => {
-            if (prof) {
-              enriched.set(hit.site, prof);
-              scheduleRender();
-            }
-          }).catch(() => {});
+          enrichProfile(username, hit.site, site.url)
+            .then((prof) => {
+              if (prof) {
+                enriched.set(hit.site, prof);
+                scheduleRender();
+              }
+            })
+            .catch(() => {});
         }
       }
     });
@@ -801,6 +1214,13 @@
       wide: true,
     },
     spokeo: { favicon: "spokeo.com", title: "Spokeo", wide: true },
+    blockchain: {
+      favicon: "blockchain.info",
+      title: "Blockchain",
+      wide: false,
+    },
+    favicon_hash: { favicon: "shodan.io", title: "Favicon Hash", wide: false },
+    dehashed: { favicon: "dehashed.com", title: "Dehashed", wide: true },
   };
 
   // ── inline "Label: Value" row helper ─────────────────────────────────────
@@ -858,18 +1278,31 @@
         ].join("");
         break;
       case "dns": {
-        const aRec  = (d.A    || [])[0]?.data || null;
-        const mxRec = (d.MX   || [])[0]?.data?.replace(/^\d+\s+/, "") || null;
-        const nsRec = (d.NS   || [])[0]?.data || null;
-        const spf   = (d.SPF  || d.TXT || []).map(r => r.data).find(v => v?.includes("v=spf1"));
-        const dmarc = (d.DMARC || []).map(r => r.data).find(v => v?.includes("v=DMARC1"));
+        const aRec = (d.A || [])[0]?.data || null;
+        const mxRec = (d.MX || [])[0]?.data?.replace(/^\d+\s+/, "") || null;
+        const nsRec = (d.NS || [])[0]?.data || null;
+        const spf = (d.SPF || d.TXT || [])
+          .map((r) => r.data)
+          .find((v) => v?.includes("v=spf1"));
+        const dmarc = (d.DMARC || [])
+          .map((r) => r.data)
+          .find((v) => v?.includes("v=DMARC1"));
         rows = [
-          iRow("A",     aRec),
-          iRow("MX",    mxRec),
-          iRow("NS",    nsRec),
-          iRow("SPF",   spf   ? "✓ configured" : null),
-          iRow("DMARC", dmarc ? `p=${(dmarc.match(/p=(\w+)/)||[])[1] || "set"}` : null),
-          iRow("Types", Object.entries(d).filter(([,v]) => Array.isArray(v) && v.length).map(([k]) => k).join(" · ")),
+          iRow("A", aRec),
+          iRow("MX", mxRec),
+          iRow("NS", nsRec),
+          iRow("SPF", spf ? "✓ configured" : null),
+          iRow(
+            "DMARC",
+            dmarc ? `p=${(dmarc.match(/p=(\w+)/) || [])[1] || "set"}` : null,
+          ),
+          iRow(
+            "Types",
+            Object.entries(d)
+              .filter(([, v]) => Array.isArray(v) && v.length)
+              .map(([k]) => k)
+              .join(" · "),
+          ),
         ].join("");
         break;
       }
@@ -951,6 +1384,22 @@
         ].join("");
         break;
       }
+      case "blockchain":
+        rows = [
+          iRow("Address", d.address || d.ip),
+          iRow("Balance", d.balance != null ? `${d.balance} BTC` : null),
+          iRow("Tx Count", d.tx_count),
+          iRow("Received", d.total_received ? `${d.total_received} BTC` : null),
+          iRow("Tokens", d.token_count),
+        ].join("");
+        break;
+      case "favicon_hash":
+        rows = [
+          iRow("Domain", d.domain),
+          iRow("MMH3", d.hash),
+          iRow("Shodan", d.shodan_query),
+        ].join("");
+        break;
       default:
         rows = iRow(mod, JSON.stringify(d).slice(0, 80));
     }
@@ -976,7 +1425,9 @@
       </div>`;
     document.body.appendChild(ov);
     ov.querySelector(".dos-modal-close").onclick = () => ov.remove();
-    ov.addEventListener("click", (e) => { if (e.target === ov) ov.remove(); });
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) ov.remove();
+    });
 
     if (mod === "username") {
       const sites = Array.isArray(data) ? data : [];
@@ -1102,10 +1553,22 @@
 
       case "dns": {
         // Priority order for display
-        const ORDER = ["A", "AAAA", "MX", "NS", "TXT", "SPF", "DMARC", "CAA", "SOA"];
-        const all = Object.entries(d).filter(([, v]) => Array.isArray(v) && v.length);
+        const ORDER = [
+          "A",
+          "AAAA",
+          "MX",
+          "NS",
+          "TXT",
+          "SPF",
+          "DMARC",
+          "CAA",
+          "SOA",
+        ];
+        const all = Object.entries(d).filter(
+          ([, v]) => Array.isArray(v) && v.length,
+        );
         const sorted = [
-          ...ORDER.map(t => all.find(([k]) => k === t)).filter(Boolean),
+          ...ORDER.map((t) => all.find(([k]) => k === t)).filter(Boolean),
           ...all.filter(([k]) => !ORDER.includes(k)),
         ];
 
@@ -1114,7 +1577,8 @@
           // Skip raw hex CAA
           if (type === "CAA" && s.startsWith("\\#")) return null;
           // Strip outer quotes from TXT/SPF/DMARC
-          if (["TXT","SPF","DMARC"].includes(type)) return s.replace(/^"|"$/g, "");
+          if (["TXT", "SPF", "DMARC"].includes(type))
+            return s.replace(/^"|"$/g, "");
           // Truncate long IPv6
           if (type === "AAAA" && s.length > 20) return s.slice(0, 20) + "…";
           // MX: strip priority number prefix for cleaner look
@@ -1124,18 +1588,22 @@
           return s;
         }
 
-        const rows = sorted.map(([type, recs]) => {
-          const vals = recs
-            .map(r => cleanDnsVal(type, r.data))
-            .filter(v => v != null && v !== "");
-          if (!vals.length) return "";
-          return `<div class="dns-record-block">
+        const rows = sorted
+          .map(([type, recs]) => {
+            const vals = recs
+              .map((r) => cleanDnsVal(type, r.data))
+              .filter((v) => v != null && v !== "");
+            if (!vals.length) return "";
+            return `<div class="dns-record-block">
             <span class="dns-record-type">${escapeHtml(type)}</span>
-            <div class="dns-record-vals">${vals.map(v =>
-              `<span class="dns-record-val">${escapeHtml(v)}</span>`
-            ).join("")}</div>
+            <div class="dns-record-vals">${vals
+              .map(
+                (v) => `<span class="dns-record-val">${escapeHtml(v)}</span>`,
+              )
+              .join("")}</div>
           </div>`;
-        }).filter(Boolean);
+          })
+          .filter(Boolean);
 
         return rows.join("") || dRow("STATUS", "no records");
       }
@@ -1262,37 +1730,91 @@
 
       case "spokeo": {
         // Spokeo returns varying structures — render whatever fields are present
-        const results = d.results || d.persons || d.data || (Array.isArray(d) ? d : null);
+        const results =
+          d.results || d.persons || d.data || (Array.isArray(d) ? d : null);
         if (results && results.length) {
-          return results.slice(0, 5).map((p) => {
-            const name = p.name || [p.firstName, p.middleName, p.lastName].filter(Boolean).join(" ");
-            const phones = (p.phones || p.phoneNumbers || []).map(ph => ph.number || ph).filter(Boolean).join(", ");
-            const emails = (p.emails || p.emailAddresses || []).map(e => e.email || e).filter(Boolean).join(", ");
-            const address = p.address || (p.addresses && p.addresses[0] && [p.addresses[0].street, p.addresses[0].city, p.addresses[0].state].filter(Boolean).join(", "));
-            const age = p.age || p.ageRange;
-            const relatives = (p.relatives || []).map(r => r.name || r).filter(Boolean).slice(0, 3).join(", ");
-            return [
-              `<div class="dos-breach-row" style="margin-bottom:8px">`,
-              name ? `<span class="dos-breach-name">${escapeHtml(String(name))}</span>` : "",
-              age ? `<span class="dos-breach-meta">Age: ${escapeHtml(String(age))}</span>` : "",
-              address ? `<span class="dos-breach-meta">📍 ${escapeHtml(String(address))}</span>` : "",
-              phones ? `<span class="dos-breach-meta">📞 ${escapeHtml(phones)}</span>` : "",
-              emails ? `<span class="dos-breach-meta">✉️ ${escapeHtml(emails)}</span>` : "",
-              relatives ? `<span class="dos-breach-meta">👥 ${escapeHtml(relatives)}</span>` : "",
-              `</div>`,
-            ].join("");
-          }).join("") || dRow("STATUS", "No results");
+          return (
+            results
+              .slice(0, 5)
+              .map((p) => {
+                const name =
+                  p.name ||
+                  [p.firstName, p.middleName, p.lastName]
+                    .filter(Boolean)
+                    .join(" ");
+                const phones = (p.phones || p.phoneNumbers || [])
+                  .map((ph) => ph.number || ph)
+                  .filter(Boolean)
+                  .join(", ");
+                const emails = (p.emails || p.emailAddresses || [])
+                  .map((e) => e.email || e)
+                  .filter(Boolean)
+                  .join(", ");
+                const address =
+                  p.address ||
+                  (p.addresses &&
+                    p.addresses[0] &&
+                    [
+                      p.addresses[0].street,
+                      p.addresses[0].city,
+                      p.addresses[0].state,
+                    ]
+                      .filter(Boolean)
+                      .join(", "));
+                const age = p.age || p.ageRange;
+                const relatives = (p.relatives || [])
+                  .map((r) => r.name || r)
+                  .filter(Boolean)
+                  .slice(0, 3)
+                  .join(", ");
+                return [
+                  `<div class="dos-breach-row" style="margin-bottom:8px">`,
+                  name
+                    ? `<span class="dos-breach-name">${escapeHtml(String(name))}</span>`
+                    : "",
+                  age
+                    ? `<span class="dos-breach-meta">Age: ${escapeHtml(String(age))}</span>`
+                    : "",
+                  address
+                    ? `<span class="dos-breach-meta">📍 ${escapeHtml(String(address))}</span>`
+                    : "",
+                  phones
+                    ? `<span class="dos-breach-meta">📞 ${escapeHtml(phones)}</span>`
+                    : "",
+                  emails
+                    ? `<span class="dos-breach-meta">✉️ ${escapeHtml(emails)}</span>`
+                    : "",
+                  relatives
+                    ? `<span class="dos-breach-meta">👥 ${escapeHtml(relatives)}</span>`
+                    : "",
+                  `</div>`,
+                ].join("");
+              })
+              .join("") || dRow("STATUS", "No results")
+          );
         }
         // Flat response (single person)
         if (d.name || d.firstName || d.phone || d.email) {
-          const name = d.name || [d.firstName, d.lastName].filter(Boolean).join(" ");
+          const name =
+            d.name || [d.firstName, d.lastName].filter(Boolean).join(" ");
           return [
             dRow("Name", name),
             dRow("Age", d.age || d.ageRange),
             dRow("Address", d.address || (d.addresses && d.addresses[0])),
-            dRow("Phone", (d.phones || d.phoneNumbers || []).map(p => p.number || p).join(", ")),
-            dRow("Email", (d.emails || []).map(e => e.email || e).join(", ")),
-            dRow("Relatives", (d.relatives || []).map(r => r.name || r).slice(0, 3).join(", ")),
+            dRow(
+              "Phone",
+              (d.phones || d.phoneNumbers || [])
+                .map((p) => p.number || p)
+                .join(", "),
+            ),
+            dRow("Email", (d.emails || []).map((e) => e.email || e).join(", ")),
+            dRow(
+              "Relatives",
+              (d.relatives || [])
+                .map((r) => r.name || r)
+                .slice(0, 3)
+                .join(", "),
+            ),
           ].join("");
         }
         return `<pre class="kv-json">${escapeHtml(JSON.stringify(d, null, 2).slice(0, 800))}</pre>`;

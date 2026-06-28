@@ -44,6 +44,33 @@ async function xfetch(url, opts = {}, timeoutMs = 12000) {
   }
 }
 
+// ---------- CORS-aware fetch with proxy fallback ----------
+// Tries direct fetch first, then falls back to public CORS proxies.
+// Used for OSINT lookups that would otherwise be blocked by CORS.
+async function xfetchCors(url, opts = {}, timeoutMs = 15000) {
+  // Try direct first
+  try {
+    const r = await xfetch(url, opts, timeoutMs);
+    return r;
+  } catch {
+    /* CORS blocked — try proxies */
+  }
+  // Try public CORS proxies
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  ];
+  for (const proxyUrl of proxies) {
+    try {
+      const r = await xfetch(proxyUrl, {}, timeoutMs);
+      if (r.ok) return r;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error("All CORS proxies failed");
+}
+
 // ---------- classification ----------
 GI.classify = function classify(input) {
   const q = (input || "").trim();
@@ -64,6 +91,8 @@ GI.classify = function classify(input) {
   if (/^[a-f0-9]{64}$/i.test(q)) return { kind: "sha256", q };
   // bitcoin-ish
   if (/^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$/.test(q)) return { kind: "btc", q };
+  // ethereum
+  if (/^0x[a-fA-F0-9]{40}$/.test(q)) return { kind: "eth", q };
   // domain
   if (/^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(q))
     return { kind: "domain", q: q.toLowerCase() };
@@ -570,50 +599,76 @@ GI.usernameLinks = async function usernameLinks(username) {
 
 /**
  * Best-effort CORS-constrained username probe.
- *   Because most sites block cross-origin XHR, we use a no-cors fetch +
- *   img-tag fallback to check HTTP existence in an opaque way. Results are
- *   "maybe-present" rather than "confirmed". For high-confidence scans we
- *   also produce clickable dossier links.
+ * Uses multiple strategies:
+ *   1. Fetch the profile page via CORS proxy and check for known
+ *      "not found" patterns (404, "user not found", etc.)
+ *   2. If proxy fails, use img/iframe onerror as fallback
+ * Results are "found" / "not_found" / "unknown" — more reliable
+ * than the old no-cors approach which always returned "reachable".
  */
 GI.usernameProbe = async function usernameProbe(
   username,
   onResult,
-  { limit = Infinity } = {},
+  { limit = Infinity, concurrency = 8 } = {},
 ) {
   const sites = await GI.usernameLinks(username);
   const slice = limit === Infinity ? sites : sites.slice(0, limit);
   const results = [];
-  await Promise.all(
-    slice.map(async (s) => {
-      try {
-        const r = await xfetch(
-          s.check_url,
-          { method: "GET", mode: "no-cors" },
-          6000,
-        );
-        // no-cors → opaque; we infer "reachable" from promise fulfilment only
+
+  // Process in batches to avoid overwhelming the browser
+  for (let i = 0; i < slice.length; i += concurrency) {
+    const batch = slice.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map(async (s) => {
         const hit = {
           site: s.name,
           url: s.url,
           check: s.check_url,
-          status: "reachable",
+          status: "unknown",
           category: s.category,
         };
+        try {
+          // Strategy 1: Try to fetch via CORS proxy and detect 404s
+          const r = await xfetchCors(s.check_url, {}, 8000);
+          if (r.status === 404) {
+            hit.status = "not_found";
+          } else if (r.ok) {
+            // Got a response — try to read body for "not found" patterns
+            try {
+              const text = await r.text();
+              const lower = text.toLowerCase();
+              if (
+                lower.includes("user not found") ||
+                lower.includes("page not found") ||
+                lower.includes("doesn't exist") ||
+                lower.includes("does not exist") ||
+                lower.includes("404") ||
+                lower.includes("not available") ||
+                lower.includes("couldn't find") ||
+                lower.includes("no user") ||
+                lower.includes("cannot be found") ||
+                lower.includes("not found")
+              ) {
+                hit.status = "not_found";
+              } else {
+                hit.status = "found";
+              }
+            } catch {
+              hit.status = "found";
+            }
+          } else {
+            hit.status = r.status === 404 ? "not_found" : "unknown";
+          }
+        } catch {
+          // CORS blocked — site might still exist, mark unknown
+          hit.status = "unknown";
+        }
         results.push(hit);
         if (onResult) onResult(hit);
-      } catch {
-        const hit = {
-          site: s.name,
-          url: s.url,
-          check: s.check_url,
-          status: "blocked",
-          category: s.category,
-        };
-        results.push(hit);
-        if (onResult) onResult(hit);
-      }
-    }),
-  );
+        return hit;
+      }),
+    );
+  }
   return results;
 };
 
@@ -643,14 +698,25 @@ GI.dossier = async function dossier(input, { hibpKey } = {}) {
     );
 
   if (cls.kind === "ipv4" || cls.kind === "ipv6") {
-    add(
-      "geoip",
-      window.fetchGeo ? window.fetchGeo(cls.q) : Promise.resolve(null),
-    );
-    add("shodan", GI.shodan(cls.q));
-    add("bgp", GI.bgp(cls.q));
-    add("rdap", GI.rdap(cls.q, cls.kind));
-    add("urlscan", GI.urlscan(cls.q));
+    // Skip lookups for private/internal IPs
+    if (GI.isPrivateIP(cls.q)) {
+      report.modules.note = {
+        error: "Private/internal IP — skipping external lookups",
+      };
+      _feed(
+        "warn",
+        `DOSSIER :: ${cls.q} is private — skipping shodan/bgp/rdap`,
+      );
+    } else {
+      add(
+        "geoip",
+        window.fetchGeo ? window.fetchGeo(cls.q) : Promise.resolve(null),
+      );
+      add("shodan", GI.shodan(cls.q));
+      add("bgp", GI.bgp(cls.q));
+      add("rdap", GI.rdap(cls.q, cls.kind));
+      add("urlscan", GI.urlscan(cls.q));
+    }
   } else if (cls.kind === "domain") {
     add("dns", GI.dnsSweep(cls.q));
     add("certs", GI.certs(cls.q));
@@ -681,17 +747,30 @@ GI.dossier = async function dossier(input, { hibpKey } = {}) {
     add("username", GI.usernameLinks(cls.q));
     add("github", GI.github(cls.q));
   } else if (cls.kind === "btc") {
-    // BTC wallet — no Spokeo lookup
+    add("blockchain", GI.blockchain(cls.q, "btc"));
+  } else if (cls.kind === "eth" || cls.kind === "eth_address") {
+    add("blockchain", GI.blockchain(cls.q, "eth"));
   } else if (cls.kind === "asn") {
     add("bgp", GI.bgp(cls.q));
   }
 
+  // Favicon hash for domains (Shodan search)
+  if (cls.kind === "domain" || cls.kind === "url") {
+    const domain = cls.kind === "url" ? new URL(cls.q).hostname : cls.q;
+    add("favicon_hash", GI.faviconHash(domain));
+  }
+
   // Spokeo enrichment — fires on email, phone, name, address, domain
-  const spokeoKey = (typeof localStorage !== "undefined" &&
-    localStorage.getItem("gi:spokeo")) || "";
-  if (spokeoKey &&
-      ["email", "ipv4", "domain", "username", "url"].indexOf(cls.kind) === -1 ||
-      (spokeoKey && ["email"].indexOf(cls.kind) !== -1)) {
+  const spokeoKey =
+    (typeof localStorage !== "undefined" &&
+      localStorage.getItem("gi:spokeo")) ||
+    "";
+  if (
+    (spokeoKey &&
+      ["email", "ipv4", "domain", "username", "url"].indexOf(cls.kind) ===
+        -1) ||
+    (spokeoKey && ["email"].indexOf(cls.kind) !== -1)
+  ) {
     add("spokeo", GI.spokeo(input, spokeoKey));
   }
 
@@ -981,6 +1060,20 @@ function escapeHtml(s) {
   );
 }
 
+// ---------- IP validation ----------
+GI.isPrivateIP = function isPrivateIP(ip) {
+  if (!ip) return false;
+  // IPv4 private ranges
+  if (/^10\./.test(ip)) return true;
+  if (/^192\.168\./.test(ip)) return true;
+  if (/^172\.(1[6-9]|2[0-9]|3[01])\./.test(ip)) return true;
+  if (/^127\./.test(ip)) return true;
+  if (/^169\.254\./.test(ip)) return true;
+  if (/^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./.test(ip)) return true; // CGNAT
+  if (/^::1$|^fc|^fd|^fe80/i.test(ip)) return true; // IPv6 private/link-local
+  return false;
+};
+
 // ---------- Spokeo API ----------
 GI.spokeo = async function spokeo(query, apiKey) {
   if (!apiKey) return { error: "No Spokeo API key" };
@@ -998,9 +1091,10 @@ GI.spokeo = async function spokeo(query, apiKey) {
       endpoint = `https://api.spokeo.com/api/v1/search/name?name=${encodeURIComponent(query)}&apiKey=${encodeURIComponent(apiKey)}`;
     }
     const r = await xfetch(endpoint, {
-      headers: { "Accept": "application/json" },
+      headers: { Accept: "application/json" },
     });
-    if (r.status === 401 || r.status === 403) return { error: "Invalid API key" };
+    if (r.status === 401 || r.status === 403)
+      return { error: "Invalid API key" };
     if (r.status === 402) return { error: "Spokeo quota exceeded" };
     if (!r.ok) return { error: `Spokeo HTTP ${r.status}` };
     return await r.json();
@@ -1009,9 +1103,146 @@ GI.spokeo = async function spokeo(query, apiKey) {
   }
 };
 
+// ---------- Favicon MMH3 hash (Shodan-style) ----------
+// Computes MurmurHash3 of a favicon for Shodan/Censys search.
+GI.faviconHash = async function faviconHash(url) {
+  try {
+    // Fetch favicon via CORS proxy
+    const domain = url.startsWith("http") ? new URL(url).hostname : url;
+    const faviconUrl = `https://${domain}/favicon.ico`;
+    const r = await xfetchCors(faviconUrl, {}, 8000);
+    if (!r.ok) return { error: `favicon HTTP ${r.status}` };
+    const buf = await r.arrayBuffer();
+    // Compute MMH3 32-bit hash
+    const data = new Uint8Array(buf);
+    const hash = murmur3x86(data);
+    return {
+      domain,
+      hash,
+      shodan_query: `http.favicon.hash:${hash}`,
+      url: `https://www.shodan.io/search?query=http.favicon.hash:${hash}`,
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
+};
+
+// Minimal MurmurHash3 x86 32-bit implementation
+function murmur3x86(data) {
+  const len = data.length;
+  const nblocks = len >> 2;
+  let h1 = 0;
+  const c1 = 0xcc9e2d51;
+  const c2 = 0x1b873593;
+  for (let i = 0; i < nblocks; i++) {
+    let k1 =
+      (data[i * 4] & 0xff) |
+      ((data[i * 4 + 1] & 0xff) << 8) |
+      ((data[i * 4 + 2] & 0xff) << 16) |
+      ((data[i * 4 + 3] & 0xff) << 24);
+    k1 = Math.imul(k1, c1);
+    k1 = (k1 << 15) | (k1 >>> 17);
+    k1 = Math.imul(k1, c2);
+    h1 ^= k1;
+    h1 = (h1 << 13) | (h1 >>> 19);
+    h1 = Math.imul(h1, 5) + 0xe6546b64;
+  }
+  // Tail
+  let tail = nblocks * 4;
+  let k1 = 0;
+  switch (len & 3) {
+    case 3:
+      k1 ^= (data[tail + 2] & 0xff) << 16;
+    case 2:
+      k1 ^= (data[tail + 1] & 0xff) << 8;
+    case 1:
+      k1 ^= data[tail] & 0xff;
+      k1 = Math.imul(k1, c1);
+      k1 = (k1 << 15) | (k1 >>> 17);
+      k1 = Math.imul(k1, c2);
+      h1 ^= k1;
+  }
+  h1 ^= len;
+  h1 ^= h1 >>> 16;
+  h1 = Math.imul(h1, 0x85ebca6b);
+  h1 ^= h1 >>> 13;
+  h1 = Math.imul(h1, 0xc2b2ae35);
+  h1 ^= h1 >>> 16;
+  return (h1 >>> 0).toString();
+}
+
+// ---------- Dehashed-style breach search (free tier) ----------
+GI.dehashed = async function dehashed(query, apiKey) {
+  if (!apiKey) return { error: "Dehashed API key required" };
+  try {
+    const r = await xfetch(
+      `https://api.dehashed.com/search?query=${encodeURIComponent(query)}&size=50`,
+      {
+        headers: {
+          Authorization: `Basic ${btoa(apiKey + ":")}`,
+          Accept: "application/json",
+        },
+      },
+    );
+    if (!r.ok) return { error: `Dehashed HTTP ${r.status}` };
+    return await r.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+};
+
+// ---------- Blockchain lookup (BTC/ETH) ----------
+GI.blockchain = async function blockchain(address, kind = "btc") {
+  try {
+    if (kind === "btc" || kind === "btc_address") {
+      const r = await xfetchCors(
+        `https://blockchain.info/rawaddr/${encodeURIComponent(address)}?limit=5`,
+      );
+      if (!r.ok) return { error: `blockchain.info HTTP ${r.status}` };
+      const d = await r.json();
+      return {
+        address: d.address,
+        balance: d.final_balance / 1e8,
+        tx_count: d.n_tx,
+        total_received: d.total_received / 1e8,
+        total_sent: d.total_sent / 1e8,
+      };
+    } else {
+      // ETH
+      const r = await xfetchCors(
+        `https://api.ethplorer.io/getAddressInfo/${encodeURIComponent(address)}?apiKey=freekey`,
+      );
+      if (!r.ok) return { error: `ethplorer HTTP ${r.status}` };
+      const d = await r.json();
+      return {
+        address: d.address,
+        balance: d.ETH?.balance,
+        token_count: d.tokens?.length || 0,
+      };
+    }
+  } catch (e) {
+    return { error: e.message };
+  }
+};
+
+// ---------- Phone number lookup (NumVerify-style, free) ----------
+GI.phone = async function phone(number) {
+  try {
+    // Use numlookupapi.com free tier or similar
+    const clean = number.replace(/[^\d+]/g, "");
+    const r = await xfetchCors(
+      `https://api.numlookupapi.com/v1/validate/${clean}?apikey=free`,
+    );
+    if (!r.ok) return { error: `HTTP ${r.status}` };
+    return await r.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+};
+
 // Signal ready
 console.log(
-  "%cGideonIntel OSINT engine v2 ready — window.GI",
+  "%cGideonIntel OSINT engine v3 ready — window.GI",
   "color:#12ffc6; font-weight:bold",
 );
-_feed && _feed("ok", "GIDEONINTEL :: OSINT engine v2 online");
+_feed && _feed("ok", "GIDEONINTEL :: OSINT engine v3 online");

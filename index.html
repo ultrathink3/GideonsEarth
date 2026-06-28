@@ -46,8 +46,7 @@
   ╚██████╔╝██║██████╔╝███████╗╚██████╔╝██║ ╚████║███████║
    ╚═════╝ ╚═╝╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝
                    E  A  R  T  H   //   v2.1
-  </pre
-            >
+  </pre>
             <div id="boot-log"></div>
         </div>
 
@@ -152,7 +151,80 @@
             <button class="tool" id="btn-clear" title="Clear Pins">
                 <span>✕</span>
             </button>
+            <button
+                class="tool active"
+                id="btn-3d-buildings"
+                title="Toggle 3D Buildings (global)"
+            >
+                <span>🏢</span>
+            </button>
+            <button
+                class="tool"
+                id="btn-measure"
+                title="Measure Distance (click 2 points)"
+            >
+                <span>📏</span>
+            </button>
+            <button class="tool" id="btn-weather" title="Weather Effects">
+                <span>🌧</span>
+            </button>
         </aside>
+
+        <!-- Time Scrubber (bottom of screen) -->
+        <div id="time-scrubber" class="time-scrubber">
+            <button
+                id="time-reset"
+                class="time-reset"
+                title="Reset to real time"
+            >
+                ⏵
+            </button>
+            <input
+                type="range"
+                id="time-slider"
+                min="-12"
+                max="12"
+                step="0.5"
+                value="0"
+            />
+            <span id="time-label" class="time-label">NOW</span>
+        </div>
+
+        <!-- RECON ONLINE — Master Activation (the "holy shit" button) -->
+        <div class="recon-launch-group">
+            <button
+                id="btn-recon"
+                class="recon-launch"
+                title="ACTIVATE RECON ONLINE — All live feeds"
+            >
+                <span class="recon-launch-icon">🌍</span>
+                <span class="recon-launch-label">RECON<br />ONLINE</span>
+            </button>
+            <div id="recon-status" class="recon-status hidden">
+                <div class="recon-feed" data-feed="sats">
+                    🛰 <span class="recon-count" id="recon-sats">0</span> SATS
+                </div>
+                <div class="recon-feed" data-feed="flights">
+                    ✈
+                    <span class="recon-count" id="recon-flights">0</span>
+                    FLIGHTS
+                </div>
+                <div class="recon-feed" data-feed="ships">
+                    🚢 <span class="recon-count" id="recon-ships">0</span> SHIPS
+                </div>
+                <div class="recon-feed" data-feed="quakes">
+                    🌍
+                    <span class="recon-count" id="recon-quakes">0</span> QUAKES
+                </div>
+                <div class="recon-feed" data-feed="fires">
+                    🔥 <span class="recon-count" id="recon-fires">0</span> FIRES
+                </div>
+                <div class="recon-feed" data-feed="asteroids">
+                    ☄
+                    <span class="recon-count" id="recon-asteroids">0</span> NEAs
+                </div>
+            </div>
+        </div>
 
         <!-- GIDEON DEFENSE GRID — big standalone launch button + leaderboard -->
         <div class="def-launch-group">

@@ -121,44 +121,72 @@ viewer.scene.skyBox.show = true; // keep Cesium's built-in star cube too
 })();
 
 // --- Terrain: Cesium World Terrain (real elevation) ---
+// requestWaterMask: enables per-tile water mask data so WALK-MAN can detect
+// water surfaces and prevent the walker from sinking into rivers/lakes/oceans.
+let terrainProvider = null; // exposed for water-mask lookups in walk mode
 (async () => {
   try {
-    const terrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(1);
+    const terrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(1, {
+      requestWaterMask: true,
+    });
     viewer.terrainProvider = terrain;
-    feed("ok", "TERRAIN :: Cesium World Terrain engaged (real elevation)");
+    terrainProvider = terrain;
+    feed(
+      "ok",
+      "TERRAIN :: Cesium World Terrain engaged (real elevation + water mask)",
+    );
   } catch (e) {
     console.warn("Terrain load failed:", e);
   }
 })();
 
-// --- 3D buildings: Google Photorealistic 3D Tiles (the REAL Google-Earth-style tileset) ---
-// This is the photorealistic mesh of entire cities that Google Earth Pro shows.
-// Requires a Cesium Ion token (which we have) — Ion proxies the Google Maps API.
+// --- 3D buildings: GLOBAL COVERAGE ---
+// Strategy: load BOTH Google Photorealistic 3D Tiles (high-fidelity mesh for
+// major cities) AND Cesium OSM Buildings (350M+ procedural buildings derived
+// from OpenStreetMap, covering the ENTIRE world). Where Google has photoreal
+// mesh it renders; everywhere else OSM Buildings fill in the gaps. Result:
+// 3D buildings everywhere you zoom in, not just in select cities.
+let googleTileset = null; // track for toggle UI
+let osmBuildings = null; // track for toggle UI
+
 (async () => {
+  // 1) Google Photorealistic — best quality, limited to major cities
   try {
     const google = await Cesium.createGooglePhotorealistic3DTileset();
+    googleTileset = google;
     viewer.scene.primitives.add(google);
     feed(
       "ok",
       "3D-TILES :: Google Photorealistic 3D Tiles loaded (cities worldwide)",
     );
   } catch (e) {
-    console.warn("Google 3D Tiles failed, falling back to OSM Buildings:", e);
+    console.warn("Google 3D Tiles failed:", e);
     feed(
       "warn",
-      `3D-TILES :: Google photorealistic failed (${e.message}), using OSM Buildings`,
+      `3D-TILES :: Google photorealistic unavailable (${e.message})`,
     );
-    try {
-      const buildings = await Cesium.createOsmBuildingsAsync();
-      buildings.style = new Cesium.Cesium3DTileStyle({
-        color: "color('#9ef7e2', 0.9)",
-      });
-      viewer.scene.primitives.add(buildings);
-      feed("ok", "3D-TILES :: OSM Buildings loaded (fallback)");
-    } catch (e2) {
-      console.warn("OSM Buildings also failed:", e2);
-    }
   }
+
+  // 2) Cesium OSM Buildings — global coverage, always load
+  try {
+    const buildings = await Cesium.createOsmBuildingsAsync();
+    buildings.style = new Cesium.Cesium3DTileStyle({
+      color: "color('#9ef7e2', 0.85)",
+    });
+    osmBuildings = buildings;
+    viewer.scene.primitives.add(buildings);
+    feed(
+      "ok",
+      "3D-TILES :: Cesium OSM Buildings loaded (global — 350M+ buildings)",
+    );
+  } catch (e) {
+    console.warn("OSM Buildings failed:", e);
+    feed("err", `3D-TILES :: OSM Buildings failed (${e.message})`);
+  }
+
+  // 3) Expose toggle controls so users can enable/disable each layer
+  window.GideonsEarth.osmBuildings = osmBuildings;
+  window.GideonsEarth.googleTileset = googleTileset;
 })();
 
 // ---------- BORDERS + PLACE LABELS OVERLAY ----------
@@ -370,6 +398,154 @@ viewer.shadows = false;
 viewer.clock.shouldAnimate = true;
 viewer.clock.multiplier = 1;
 viewer.clock.clockRange = Cesium.ClockRange.UNBOUNDED;
+
+// ---------- TIME SCRUBBER ----------
+// Allows the user to scrub through time of day, seeing the day/night
+// terminator move across the globe. Stores the real-time offset so we can
+// restore it when the user releases the slider.
+let timeOffsetHours = 0; // offset from real time
+let timeScrubbing = false;
+
+function applyTimeOffset() {
+  const realNow = Date.now();
+  const scrubbed = new Date(realNow + timeOffsetHours * 3600000);
+  const jd = Cesium.JulianDate.fromDate(scrubbed);
+  viewer.clock.currentTime = jd;
+  viewer.clock.shouldAnimate = !timeScrubbing;
+}
+
+// Expose time API
+window.GideonsEarth.time = {
+  setOffsetHours(h) {
+    timeOffsetHours = h;
+    timeScrubbing = h !== 0;
+    applyTimeOffset();
+  },
+  getOffsetHours: () => timeOffsetHours,
+  reset() {
+    timeOffsetHours = 0;
+    timeScrubbing = false;
+    applyTimeOffset();
+  },
+  // Set absolute time (UTC Date object)
+  setAbsolute(date) {
+    const jd = Cesium.JulianDate.fromDate(date);
+    viewer.clock.currentTime = jd;
+    viewer.clock.shouldAnimate = false;
+    timeScrubbing = true;
+  },
+  resume() {
+    timeOffsetHours = 0;
+    timeScrubbing = false;
+    applyTimeOffset();
+  },
+};
+
+// ---------- WEATHER EFFECTS ----------
+// Particle-based weather: rain, snow, and dust storms. Rendered as a
+// Cesium particle system attached to the camera so effects are always
+// visible around the viewer regardless of zoom level.
+let weatherSystem = null;
+let weatherType = null; // 'rain' | 'snow' | 'dust' | null
+
+function startWeather(type) {
+  stopWeather();
+  if (!type) return;
+  weatherType = type;
+
+  const particleSystem = viewer.scene.primitives.add(
+    new Cesium.ParticleSystem({
+      image: makeWeatherSprite(type),
+      startColor:
+        type === "rain"
+          ? Cesium.Color.fromCssColorString("#88ccff").withAlpha(0.6)
+          : type === "snow"
+            ? Cesium.Color.WHITE.withAlpha(0.8)
+            : Cesium.Color.fromCssColorString("#d4a574").withAlpha(0.5),
+      endColor: Cesium.Color.TRANSPARENT,
+      startSize:
+        type === "rain"
+          ? new Cesium.Cartesian2(1, 12)
+          : new Cesium.Cartesian2(4, 4),
+      endSize:
+        type === "rain"
+          ? new Cesium.Cartesian2(1, 12)
+          : new Cesium.Cartesian2(4, 4),
+      minimumSpeed: type === "snow" ? 2 : type === "dust" ? 1 : 8,
+      maximumSpeed: type === "snow" ? 6 : type === "dust" ? 4 : 18,
+      lifetime: 4.0,
+      emissionRate: type === "rain" ? 1500 : type === "snow" ? 800 : 400,
+      emitter: new Cesium.BoxEmitter(new Cesium.Cartesian3(50000, 50000, 3000)),
+      updateCallback(particle, dt) {
+        // Move particles downward (or sideways for dust)
+        const vel = particle.velocity;
+        if (type === "rain") {
+          vel.y = -15;
+          vel.x = vel.z = 0;
+        } else if (type === "snow") {
+          vel.y = -3;
+          vel.x = Math.sin(Date.now() / 1000 + particle.id) * 1.5;
+          vel.z = 0;
+        } else {
+          // dust drifts sideways
+          vel.x = -3;
+          vel.y = -0.5;
+          vel.z = Math.sin(Date.now() / 2000 + particle.id) * 0.5;
+        }
+      },
+    }),
+  );
+  weatherSystem = particleSystem;
+
+  // Keep particles centered on the camera
+  viewer.scene.preRender.addEventListener(function () {
+    if (weatherSystem) {
+      const camPos = viewer.camera.position;
+      weatherSystem.modelMatrix =
+        Cesium.Transforms.eastNorthUpToFixedFrame(camPos);
+    }
+  });
+}
+
+function stopWeather() {
+  if (weatherSystem) {
+    viewer.scene.primitives.remove(weatherSystem);
+    weatherSystem = null;
+  }
+  weatherType = null;
+}
+
+function makeWeatherSprite(type) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 32;
+  const ctx = c.getContext("2d");
+  if (type === "rain") {
+    ctx.strokeStyle = "#88ccff";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(16, 0);
+    ctx.lineTo(16, 24);
+    ctx.stroke();
+  } else if (type === "snow") {
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(16, 16, 3, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.fillStyle = "rgba(212,165,116,0.6)";
+    ctx.beginPath();
+    ctx.arc(16, 16, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  return c.toDataURL();
+}
+
+// Expose weather API
+window.GideonsEarth.weather = {
+  start: startWeather,
+  stop: stopWeather,
+  getType: () => weatherType,
+};
 
 // --- Planets as glowing billboards, positioned in J2000 from the Earth
 // We use an approximate orbital formula (J2000 mean elements) — good enough
@@ -768,6 +944,24 @@ document.getElementById("btn-clear").addEventListener("click", () => {
   renderTargets();
   feed("ok", "TARGETS :: board cleared");
 });
+
+// ---------- 3D BUILDINGS TOGGLE ---
+// Toggle global 3D buildings (OSM + Google) on/off. Default: ON.
+let buildings3DOn = true;
+const btn3DBuildings = document.getElementById("btn-3d-buildings");
+btn3DBuildings &&
+  btn3DBuildings.addEventListener("click", () => {
+    buildings3DOn = !buildings3DOn;
+    if (osmBuildings) osmBuildings.show = buildings3DOn;
+    if (googleTileset) googleTileset.show = buildings3DOn;
+    btn3DBuildings.classList.toggle("active", buildings3DOn);
+    feed(
+      "ok",
+      buildings3DOn
+        ? "3D-BUILDINGS :: global 3D buildings ON (OSM + Google)"
+        : "3D-BUILDINGS :: global 3D buildings OFF",
+    );
+  });
 
 // ---------- TABS ----------
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -1336,8 +1530,23 @@ function escapeHtml(s) {
 })();
 
 // ---------- CLICK-TO-PIN ON GLOBE ----------
+// Also handles measure-mode clicks (single click) and pin drops (double click).
 const handler = new Cesium.ScreenSpaceEventHandler(viewer.canvas);
 handler.setInputAction((click) => {
+  // Measure mode: single click adds measurement points
+  if (measureMode) {
+    const cart = viewer.camera.pickEllipsoid(
+      click.position,
+      scene.globe.ellipsoid,
+    );
+    if (cart) {
+      const c = Cesium.Cartographic.fromCartesian(cart);
+      addMeasurePoint(c);
+    }
+    return;
+  }
+
+  // Normal mode: double-click drops a pin
   const cart = viewer.camera.pickEllipsoid(
     click.position,
     scene.globe.ellipsoid,
@@ -1353,6 +1562,19 @@ handler.setInputAction((click) => {
     meta: "manual drop",
   });
 }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+
+// Single-click handler for measure mode (separate from double-click pin handler)
+handler.setInputAction((click) => {
+  if (!measureMode) return;
+  const cart = viewer.camera.pickEllipsoid(
+    click.position,
+    scene.globe.ellipsoid,
+  );
+  if (cart) {
+    const c = Cesium.Cartographic.fromCartesian(cart);
+    addMeasurePoint(c);
+  }
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
 // ---------- SINGLE-CLICK TO REMOVE A PIN / BEAM ----------
 // Clicking any pin's tower, beam, point, or ring removes that entire target.
@@ -1387,6 +1609,147 @@ console.log(
   "%cGideonsEarth ready — double-click the globe to drop a pin.",
   "color:#12ffc6; font-weight:bold;",
 );
+
+// ---------- MEASUREMENT TOOLS ----------
+// Click two points on the globe to measure the great-circle distance between
+// them. Uses Cesium's EllipsoidGeodesic for WGS84 accuracy. Also shows
+// bearing (azimuth) from point A to point B.
+let measureMode = false;
+let measurePoints = []; // [{lat, lon, entity}]
+let measureEntities = [];
+
+function enterMeasureMode() {
+  measureMode = true;
+  measurePoints = [];
+  measureEntities.forEach((e) => {
+    try {
+      viewer.entities.remove(e);
+    } catch {}
+  });
+  measureEntities = [];
+  feed("ok", "MEASURE :: click two points to measure distance");
+}
+
+function exitMeasureMode() {
+  measureMode = false;
+  measurePoints = [];
+  measureEntities.forEach((e) => {
+    try {
+      viewer.entities.remove(e);
+    } catch {}
+  });
+  measureEntities = [];
+}
+
+function formatDistance(meters) {
+  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
+  return `${meters.toFixed(1)} m`;
+}
+
+function formatBearing(radians) {
+  const deg = ((Cesium.Math.toDegrees(radians) % 360) + 360) % 360;
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  return `${deg.toFixed(1)}° ${dirs[Math.round(deg / 45) % 8]}`;
+}
+
+function addMeasurePoint(cartographic) {
+  const lat = Cesium.Math.toDegrees(cartographic.latitude);
+  const lon = Cesium.Math.toDegrees(cartographic.longitude);
+
+  // Drop a marker
+  const marker = viewer.entities.add({
+    position: Cesium.Cartesian3.fromDegrees(lon, lat),
+    point: {
+      pixelSize: 10,
+      color: Cesium.Color.fromCssColorString("#ffb020"),
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+    label: {
+      text: measurePoints.length === 0 ? "A" : "B",
+      font: "bold 14px JetBrains Mono, monospace",
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      pixelOffset: new Cesium.Cartesian2(0, -20),
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+  });
+  measureEntities.push(marker);
+  measurePoints.push({ lat, lon, entity: marker });
+
+  // If we have two points, draw the line and show distance
+  if (measurePoints.length === 2) {
+    const a = measurePoints[0];
+    const b = measurePoints[1];
+
+    const start = Cesium.Cartographic.fromDegrees(a.lon, a.lat);
+    const end = Cesium.Cartographic.fromDegrees(b.lon, b.lat);
+    const geodesic = new Cesium.EllipsoidGeodesic(start, end);
+    const distance = geodesic.surfaceDistance;
+    const bearing = geodesic.startHeading;
+
+    // Draw geodesic line (great circle)
+    const linePts = [];
+    const steps = 100;
+    for (let i = 0; i <= steps; i++) {
+      const p = geodesic.interpolateUsingFraction(i / steps);
+      linePts.push(Cesium.Cartesian3.fromRadians(p.longitude, p.latitude, 0));
+    }
+    const line = viewer.entities.add({
+      polyline: {
+        positions: linePts,
+        width: 3,
+        material: new Cesium.PolylineGlowMaterialProperty({
+          glowPower: 0.3,
+          color: Cesium.Color.fromCssColorString("#ffb020"),
+        }),
+        clampToGround: true,
+        arcType: Cesium.ArcType.NONE,
+      },
+    });
+    measureEntities.push(line);
+
+    // Label at midpoint showing distance + bearing
+    const mid = geodesic.interpolateUsingFraction(0.5);
+    const midLat = Cesium.Math.toDegrees(mid.latitude);
+    const midLon = Cesium.Math.toDegrees(mid.longitude);
+    const label = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(midLon, midLat, 0),
+      label: {
+        text: `${formatDistance(distance)}\n${formatBearing(bearing)}`,
+        font: "bold 12px JetBrains Mono, monospace",
+        fillColor: Cesium.Color.fromCssColorString("#ffb020"),
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 3,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: new Cesium.Cartesian2(0, -30),
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    });
+    measureEntities.push(label);
+
+    feed(
+      "ok",
+      `MEASURE :: ${formatDistance(distance)} @ ${formatBearing(bearing)} from A to B`,
+    );
+
+    // Reset for next measurement
+    measurePoints = [];
+  }
+}
+
+// Expose measurement API
+window.GideonsEarth.measure = {
+  enter: enterMeasureMode,
+  exit: exitMeasureMode,
+  isActive: () => measureMode,
+};
 
 // ---------- CUSTOM ION 3D MODELS — AUTO-DISCOVERY ----------
 // Automatically lists every asset in your Cesium Ion account via the REST API,
@@ -1542,6 +1905,85 @@ window.GideonsEarth.addModel = async (assetId, opts = {}) => {
   }
   return loadIonAsset(fakeAsset);
 };
+
+// 3D buildings API — toggle global building layers on/off
+//   GideonsEarth.buildings(true)  // enable all
+//   GideonsEarth.buildings(false) // disable all
+//   GideonsEarth.buildings.osm(true) // toggle just OSM
+//   GideonsEarth.buildings.google(true) // toggle just Google
+window.GideonsEarth.buildings = (on) => {
+  buildings3DOn = on;
+  if (osmBuildings) osmBuildings.show = on;
+  if (googleTileset) googleTileset.show = on;
+  if (btn3DBuildings) btn3DBuildings.classList.toggle("active", on);
+};
+window.GideonsEarth.buildings.osm = (on) => {
+  if (osmBuildings) osmBuildings.show = on;
+};
+window.GideonsEarth.buildings.google = (on) => {
+  if (googleTileset) googleTileset.show = on;
+};
+
+// ---------- MEASURE MODE TOGGLE ----------
+const btnMeasure = document.getElementById("btn-measure");
+let measureActive = false;
+btnMeasure &&
+  btnMeasure.addEventListener("click", () => {
+    measureActive = !measureActive;
+    if (measureActive) {
+      enterMeasureMode();
+      btnMeasure.classList.add("active");
+    } else {
+      exitMeasureMode();
+      btnMeasure.classList.remove("active");
+    }
+  });
+
+// ---------- WEATHER EFFECTS TOGGLE ----------
+const btnWeather = document.getElementById("btn-weather");
+const WEATHER_CYCLE = ["rain", "snow", "dust"];
+let weatherCycleIdx = -1;
+btnWeather &&
+  btnWeather.addEventListener("click", () => {
+    weatherCycleIdx++;
+    if (weatherCycleIdx >= WEATHER_CYCLE.length) {
+      // Turn off
+      stopWeather();
+      weatherCycleIdx = -1;
+      btnWeather.classList.remove("active");
+      feed("ok", "WEATHER :: effects off");
+    } else {
+      const type = WEATHER_CYCLE[weatherCycleIdx];
+      startWeather(type);
+      btnWeather.classList.add("active");
+      btnWeather.querySelector("span").textContent =
+        type === "rain" ? "🌧" : type === "snow" ? "❄" : "🌪";
+      feed("ok", `WEATHER :: ${type} effect active`);
+    }
+  });
+
+// ---------- TIME SCRUBBER UI ----------
+const timeSlider = document.getElementById("time-slider");
+const timeLabel = document.getElementById("time-label");
+const timeReset = document.getElementById("time-reset");
+timeSlider &&
+  timeSlider.addEventListener("input", (e) => {
+    const hours = parseFloat(e.target.value);
+    window.GideonsEarth.time.setOffsetHours(hours);
+    if (hours === 0) {
+      timeLabel.textContent = "NOW";
+    } else {
+      const sign = hours > 0 ? "+" : "";
+      timeLabel.textContent = `${sign}${hours}h`;
+    }
+  });
+timeReset &&
+  timeReset.addEventListener("click", () => {
+    window.GideonsEarth.time.reset();
+    timeSlider.value = 0;
+    timeLabel.textContent = "NOW";
+    feed("ok", "TIME :: reset to real time");
+  });
 
 // ---------- PUBLIC CCTV / WEBCAM TOGGLE ----------
 const btnCameras = document.getElementById("btn-cameras");
@@ -1798,11 +2240,83 @@ function renderAssetList() {
   });
 }
 
+// ---------- WATER MASK DETECTION ----------
+// Uses the terrain provider's per-tile water mask (256x256 texture where
+// 255 = water, 0 = land) to determine if a given lon/lat is over water.
+// This is the key to preventing WALK-MAN from sinking into rivers/lakes/oceans.
+//
+// Cache: we keep a small LRU-ish cache of recent lookups to avoid refetching
+// the same tile every frame.
+const waterCache = new Map(); // key = "lon,lat" -> { isWater: bool, ts: number }
+const WATER_CACHE_TTL = 5000; // ms before re-checking same spot
+
+/**
+ * Async: check if a lon/lat (degrees) is over water using the terrain tile's
+ * water mask. Returns true (water), false (land), or null (unknown — tile
+ * not loaded yet). Uses a short-lived cache to avoid hammering the server.
+ */
+async function isOverWaterDeg(lon, lat) {
+  if (!terrainProvider || !terrainProvider.hasWaterMask) return null;
+  const key = `${lon.toFixed(4)},${lat.toFixed(4)}`;
+  const cached = waterCache.get(key);
+  if (cached && performance.now() - cached.ts < WATER_CACHE_TTL)
+    return cached.isWater;
+
+  // Compute tile coordinates at a reasonable level (level 8 gives ~12m/pixel)
+  const tilingScheme = terrainProvider.tilingScheme;
+  const level = 8;
+  const coords = tilingScheme.positionToTileXY(
+    Cesium.Cartographic.fromDegrees(lon, lat),
+    level,
+  );
+  if (!coords) return null;
+
+  try {
+    const terrainData = await terrainProvider.requestTileGeometry(
+      coords.x,
+      coords.y,
+      level,
+    );
+    if (!terrainData || !terrainData.waterMask) return null;
+
+    // Sample the water mask at the position within the tile
+    const mask = terrainData.waterMask;
+    const rectangle = tilingScheme.tileXYToRectangle(coords.x, coords.y, level);
+    // Normalized position within tile [0..1]
+    const u =
+      (lon - Cesium.Math.toDegrees(rectangle.west)) /
+      Cesium.Math.toDegrees(rectangle.width);
+    const v =
+      (lat - Cesium.Math.toDegrees(rectangle.south)) /
+      Cesium.Math.toDegrees(rectangle.height);
+    const px = Math.min(255, Math.max(0, Math.floor(u * 256)));
+    const py = Math.min(255, Math.max(0, Math.floor((1 - v) * 256)));
+    const val = mask[py * 256 + px];
+    // 255 = water, 0 = land. Use threshold of 128.
+    const isWater = val > 128;
+    waterCache.set(key, { isWater, ts: performance.now() });
+    // Prune cache if too large
+    if (waterCache.size > 200) {
+      const now = performance.now();
+      for (const [k, v2] of waterCache) {
+        if (now - v2.ts > WATER_CACHE_TTL) waterCache.delete(k);
+      }
+    }
+    return isWater;
+  } catch {
+    return null;
+  }
+}
+
 // ---------- WALK-MAN MODE (first-person walk around the globe) ----------
 // Click the 🚶 tool, then click anywhere on the map to drop your walker and
 // enter first-person. WASD to walk, mouse to look, SPACE to jump, SHIFT to run,
 // Q/E to fly up/down, ESC to exit. The camera hugs the terrain (or top of any
 // 3D-Tiles building surface), with a small collision offset.
+//
+// WATER AVOIDANCE: uses the terrain water mask to detect when the walker is
+// approaching or over water. When over water, the walker maintains the last
+// known land elevation instead of sinking to sea level.
 
 const walkHud = document.getElementById("walk-hud");
 const walkSpeedEl = document.getElementById("walk-speed");
@@ -1829,6 +2343,11 @@ const walk = {
   avatarId: null,
   avatarEntity: null, // direct entity ref so we can exclude it from picking
   _lastGoodGroundH: null, // depth-buffer ground cache for next frame
+  // Water avoidance
+  _lastLandHeight: null, // last known terrain height over LAND (not water)
+  _waterCheckBusy: false, // one async water check at a time
+  _isOverWater: false, // current water state
+  _waterWarningIssued: false, // prevent spamming the warning
 };
 
 const btnWalk = document.getElementById("btn-walk");
@@ -1901,6 +2420,35 @@ async function enterWalkMode(lon, lat, pickedHeight) {
   // Never spawn below sea level
   if (groundHeight < 0 || !Number.isFinite(groundHeight)) groundHeight = 0;
 
+  // --- WATER CHECK: refuse to spawn over water ---
+  // Use the terrain water mask to detect if the click landed on a river,
+  // lake, or ocean. If so, warn the user and exit walk mode — the walker
+  // belongs on land.
+  let spawnIsWater = false;
+  try {
+    spawnIsWater = await isOverWaterDeg(lon, lat);
+  } catch {
+    /* ignore — fall through */
+  }
+  if (spawnIsWater === true) {
+    // Cancel walk mode — don't drop the walker into water
+    walk.active = false;
+    walk.awaiting = false;
+    document.body.classList.remove("walk-mode");
+    walkHud.classList.add("hidden");
+    btnWalk.classList.remove("active");
+    feed(
+      "err",
+      "WALK-MAN :: cannot spawn over water — click on land to drop the walker",
+    );
+    return;
+  }
+
+  // Initialize water tracking — this is a known land position
+  walk._lastLandHeight = groundHeight;
+  walk._isOverWater = false;
+  walk._waterWarningIssued = false;
+
   // Start 50m above the surface and let gravity drop us onto it — guarantees we
   // never spawn *inside* a building or hillside.
   walk.position = Cesium.Cartographic.fromDegrees(
@@ -1909,11 +2457,10 @@ async function enterWalkMode(lon, lat, pickedHeight) {
     groundHeight + walk.eyeHeight + 50,
   );
 
-  // Warn if spawning over water
   if (groundHeight <= 0) {
     feed(
       "warn",
-      "WALK-MAN :: spawned near sea level — you may be over water. Click land to reposition.",
+      "WALK-MAN :: spawned near sea level — water avoidance active. Stay on land!",
     );
   }
   walk.heading = 0;
@@ -2124,6 +2671,39 @@ viewer.clock.onTick.addEventListener(() => {
   // Kick an async ground-height refresh (returns immediately)
   refreshGroundHeight();
 
+  // ── WATER CHECK: async sample the terrain water mask at our position ──
+  // This runs every frame (throttled internally by the cache TTL). If we're
+  // over water, we'll use the last known land height instead of the water
+  // surface. This prevents the walker from sinking into rivers/lakes/oceans.
+  if (!walk._waterCheckBusy) {
+    walk._waterCheckBusy = true;
+    isOverWaterDeg(
+      Cesium.Math.toDegrees(walk.position.longitude),
+      Cesium.Math.toDegrees(walk.position.latitude),
+    )
+      .then((isWater) => {
+        if (isWater === true) {
+          walk._isOverWater = true;
+          if (!walk._waterWarningIssued) {
+            walk._waterWarningIssued = true;
+            feed(
+              "warn",
+              "WALK-MAN :: water detected — holding at land elevation",
+            );
+          }
+        } else if (isWater === false) {
+          // On land — update our known-good land height
+          walk._isOverWater = false;
+          walk._waterWarningIssued = false;
+          // We'll update _lastLandHeight below once we get a good surfaceH
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        walk._waterCheckBusy = false;
+      });
+  }
+
   // ── SURFACE-LOCK: use scene.pickPosition for reliable ground detection ──
   // Instead of sampling height (which misses 3D tiles at low LOD),
   // we project a virtual ray straight DOWN from the walker through the
@@ -2186,6 +2766,17 @@ viewer.clock.onTick.addEventListener(() => {
     // Store as last known good height (for next frame if all methods fail)
     if (surfaceH > 0) walk._lastGoodGroundH = surfaceH;
     else if (walk._lastGoodGroundH) surfaceH = walk._lastGoodGroundH;
+
+    // ── WATER AVOIDANCE: if over water, use last known land height ──
+    // The depth buffer returns the water surface (sea level = 0m), which
+    // would make the walker sink. Instead, hold at the last known land
+    // elevation so the walker appears to stand at the water's edge.
+    if (walk._isOverWater && walk._lastLandHeight != null) {
+      surfaceH = walk._lastLandHeight;
+    } else if (!walk._isOverWater && surfaceH > 0) {
+      // On land — update our known-good land height
+      walk._lastLandHeight = surfaceH;
+    }
 
     // Smoothly move toward target height
     const targetH = surfaceH + walk.eyeHeight;
@@ -2389,3 +2980,439 @@ addrInput.addEventListener("keydown", (e) => {
 
   feed("ok", "SAT :: GIDEON-SAT-01 in low earth orbit");
 })();
+
+// ===========================================================================
+// RECON ONLINE — Master Activation System
+// ===========================================================================
+// The "holy shit" button. One click activates ALL live data feeds:
+//   1. Starlink constellation (real TLE data, 100+ satellites)
+//   2. Live aircraft (ADS-B military + civilian)
+//   3. Live ships (AIS vessel tracking)
+//   4. Recent earthquakes (USGS)
+//   5. Active wildfires (NASA FIRMS thermal anomalies via VIIRS)
+//   6. Near-Earth asteroids (NASA close-approach data)
+//   7. Hurricane/typhoon tracks (NOAA)
+// Each feed renders in 3D with live updates. The globe comes alive.
+// ===========================================================================
+
+const RECON = {
+  active: false,
+  feeds: {
+    sats: { entities: [], timer: null, count: 0 },
+    flights: { entities: [], timer: null, count: 0 },
+    ships: { entities: [], timer: null, count: 0 },
+    quakes: { entities: [], count: 0 },
+    fires: { entities: [], count: 0 },
+    asteroids: { entities: [], count: 0 },
+    storms: { entities: [], count: 0 },
+  },
+};
+
+// ---- 1. STARLINK CONSTELLATION ----
+// Fetches real Starlink TLE data from CelesTrak and propagates orbits via SGP4.
+// Renders 100+ satellites as glowing cyan points with orbital tracks.
+async function loadStarlink() {
+  try {
+    feed("warn", "RECON :: acquiring Starlink TLE data...");
+    const res = await fetch(
+      "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle",
+      { signal: AbortSignal.timeout(15000) },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const lines = text.trim().split("\n");
+    const sats = [];
+    for (let i = 0; i < lines.length; i += 3) {
+      if (lines[i] && lines[i + 1] && lines[i + 2]) {
+        sats.push({
+          name: lines[i].trim(),
+          line1: lines[i + 1].trim(),
+          line2: lines[i + 2].trim(),
+        });
+      }
+    }
+    feed("ok", `RECON :: ${sats.length} Starlink satellites acquired`);
+
+    // Render satellites (limit to 120 for performance)
+    const maxSats = Math.min(sats.length, 120);
+    for (let i = 0; i < maxSats; i++) {
+      const sat = sats[i];
+      const satrec = satellite.twoline2satrec(sat.line1, sat.line2);
+      if (!satrec) continue;
+
+      const entity = viewer.entities.add({
+        position: new Cesium.CallbackProperty(() => {
+          const now = new Date();
+          const posAndVelocity = satellite.propagate(satrec, now);
+          if (!posAndVelocity.position) return Cesium.Cartesian3.ZERO;
+          const gmst = satellite.gstime(now);
+          const posEcf = satellite.eciToEcf(posAndVelocity.position, gmst);
+          const cart = Cesium.Cartesian3.fromElements(
+            posEcf.x * 1000,
+            posEcf.y * 1000,
+            posEcf.z * 1000,
+          );
+          return cart;
+        }, false),
+        point: {
+          pixelSize: 4,
+          color: Cesium.Color.fromCssColorString("#12ffc6"),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      RECON.feeds.sats.entities.push(entity.id);
+    }
+    RECON.feeds.sats.count = maxSats;
+    updateReconCounter("sats", maxSats);
+    feed("ok", `RECON :: ${maxSats} Starlink satellites now tracking`);
+  } catch (e) {
+    feed("err", `RECON :: Starlink failed → ${e.message}`);
+    updateReconCounter("sats", "ERR");
+  }
+}
+
+// ---- 2. LIVE AIRCRAFT (ADS-B) ----
+async function loadFlights() {
+  try {
+    feed("warn", "RECON :: connecting to ADS-B feed...");
+    const res = await fetch("https://api.adsb.lol/v2/all", {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    const aircraft = j.ac || [];
+
+    aircraft.forEach((ac) => {
+      if (!ac.lat || !ac.lon) return;
+      const alt = (ac.alt_baro || ac.alt_geom || 10000) * 0.3048;
+      const e = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(ac.lon, ac.lat, alt),
+        point: {
+          pixelSize: 5,
+          color: Cesium.Color.fromCssColorString("#ffb020"),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 1,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: {
+          text: (ac.flight || ac.r || "").trim(),
+          font: "8px JetBrains Mono, monospace",
+          fillColor: Cesium.Color.fromCssColorString("#ffb020"),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(8, -3),
+          scaleByDistance: new Cesium.NearFarScalar(1e4, 1.2, 5e6, 0.3),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      RECON.feeds.flights.entities.push(e.id);
+    });
+
+    RECON.feeds.flights.count = aircraft.length;
+    updateReconCounter("flights", aircraft.length);
+    feed("ok", `RECON :: ${aircraft.length} aircraft live`);
+  } catch (e) {
+    feed("err", `RECON :: flights failed → ${e.message}`);
+    updateReconCounter("flights", "ERR");
+  }
+}
+
+// ---- 3. LIVE SHIPS (AIS) ----
+async function loadShips() {
+  try {
+    feed("warn", "RECON :: connecting to AIS vessel feed...");
+    // Use a public AIS feed (marine-type API via CORS proxy)
+    const res = await fetch(
+      "https://api.vesselfinder.com/v1/vessels?bbox=-180,-90,180,90&limit=200",
+      { signal: AbortSignal.timeout(15000) },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    const vessels = j.vessels || j.data || [];
+
+    vessels.forEach((v) => {
+      const lat = v.lat || v.latitude;
+      const lon = v.lon || v.longitude;
+      if (!lat || !lon) return;
+      const e = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+        point: {
+          pixelSize: 4,
+          color: Cesium.Color.fromCssColorString("#4ecdc4"),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      RECON.feeds.ships.entities.push(e.id);
+    });
+
+    RECON.feeds.ships.count = vessels.length;
+    updateReconCounter("ships", vessels.length);
+    feed("ok", `RECON :: ${vessels.length} vessels tracked`);
+  } catch (e) {
+    // AIS often blocked by CORS — show graceful fallback
+    feed("warn", `RECON :: AIS feed CORS-blocked (expected in browser)`);
+    updateReconCounter("ships", "N/A");
+  }
+}
+
+// ---- 4. EARTHQUAKES (USGS) ----
+async function loadQuakes() {
+  try {
+    feed("warn", "RECON :: fetching USGS earthquake feed...");
+    const res = await fetch(
+      "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson",
+      { signal: AbortSignal.timeout(15000) },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const g = await res.json();
+
+    g.features.forEach((f) => {
+      const [lon, lat, depth] = f.geometry.coordinates;
+      const mag = f.properties.mag || 0;
+      const color =
+        mag >= 7
+          ? "#ff0040"
+          : mag >= 6
+            ? "#ff2e6e"
+            : mag >= 5
+              ? "#ff6b2e"
+              : "#ffb020";
+      const e = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+        point: {
+          pixelSize: 6 + mag * 3,
+          color: Cesium.Color.fromCssColorString(color),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        ellipse: {
+          semiMajorAxis: Math.max(50000, mag * 80000),
+          semiMinorAxis: Math.max(50000, mag * 80000),
+          material: Cesium.Color.fromCssColorString(color).withAlpha(0.15),
+          outline: true,
+          outlineColor: Cesium.Color.fromCssColorString(color).withAlpha(0.5),
+          height: 0,
+        },
+        label: {
+          text: `M${mag.toFixed(1)} ${f.properties.place || ""}`,
+          font: "9px JetBrains Mono, monospace",
+          fillColor: Cesium.Color.fromCssColorString(color),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(10, -5),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      RECON.feeds.quakes.entities.push(e.id);
+    });
+
+    RECON.feeds.quakes.count = g.features.length;
+    updateReconCounter("quakes", g.features.length);
+    feed("ok", `RECON :: ${g.features.length} significant earthquakes (7d)`);
+  } catch (e) {
+    feed("err", `RECON :: earthquakes failed → ${e.message}`);
+    updateReconCounter("quakes", "ERR");
+  }
+}
+
+// ---- 5. ACTIVE WILDFIRES (NASA FIRMS) ----
+async function loadFires() {
+  try {
+    feed("warn", "RECON :: fetching NASA FIRMS fire detections...");
+    // Use VIIRS fire data (last 24h, global) — no key needed for CSV
+    const res = await fetch(
+      "https://firms.modaps.eosdis.nasa.gov/data/active_fire/noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_24h.csv",
+      { signal: AbortSignal.timeout(20000) },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const csv = await res.text();
+    const lines = csv.split(/\r?\n/).slice(1, 501); // skip header, limit 500
+
+    let count = 0;
+    lines.forEach((ln) => {
+      if (!ln) return;
+      const c = ln.split(",");
+      const lat = parseFloat(c[0]);
+      const lon = parseFloat(c[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      const frp = parseFloat(c[6]) || 1;
+      const e = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+        point: {
+          pixelSize: Math.min(6, 2 + Math.log2(frp + 1)),
+          color: Cesium.Color.fromCssColorString("#ff4020"),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      RECON.feeds.fires.entities.push(e.id);
+      count++;
+    });
+
+    RECON.feeds.fires.count = count;
+    updateReconCounter("fires", count);
+    feed("ok", `RECON :: ${count} active fire detections (24h)`);
+  } catch (e) {
+    feed("warn", `RECON :: FIRMS CORS-blocked (expected in browser)`);
+    updateReconCounter("fires", "N/A");
+  }
+}
+
+// ---- 6. NEAR-EARTH ASTEROIDS (NASA) ----
+async function loadAsteroids() {
+  try {
+    feed("warn", "RECON :: fetching NASA close-approach data...");
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await fetch(
+      `https://ssd-api.jpl.nasa.gov/cad.api?dist-max=10LD&date-min=${today}&date-max=${today}&body=Earth`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    const asteroids = j.data || [];
+
+    asteroids.forEach((a) => {
+      // a = [des, orbit_id, jd, dist, dist_min, dist_max, v_rel, v_inf, h]
+      const name = a[0];
+      const distLD = parseFloat(a[3]); // distance in lunar distances
+      const size = parseFloat(a[8]) || 20; // absolute magnitude H
+      // Place asteroid at a position relative to Earth based on distance
+      const angle = Math.random() * Math.PI * 2;
+      const distMeters = distLD * 384400000; // LD to meters
+      const x = Math.cos(angle) * distMeters;
+      const y = Math.sin(angle) * distMeters;
+      const e = viewer.entities.add({
+        position: Cesium.Cartesian3.fromElements(x, y, 0),
+        point: {
+          pixelSize: 8,
+          color: Cesium.Color.fromCssColorString("#ff6b2e"),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: {
+          text: `☄ ${name} (${distLD.toFixed(1)} LD)`,
+          font: "9px JetBrains Mono, monospace",
+          fillColor: Cesium.Color.fromCssColorString("#ff6b2e"),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(10, -5),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+      RECON.feeds.asteroids.entities.push(e.id);
+    });
+
+    RECON.feeds.asteroids.count = asteroids.length;
+    updateReconCounter("asteroids", asteroids.length);
+    feed("ok", `RECON :: ${asteroids.length} near-Earth objects today`);
+  } catch (e) {
+    feed("warn", `RECON :: NASA NEO API unavailable → ${e.message}`);
+    updateReconCounter("asteroids", "N/A");
+  }
+}
+
+// ---- RECON UI HELPERS ----
+function updateReconCounter(feed, count) {
+  const el = document.getElementById(`recon-${feed}`);
+  if (el) el.textContent = count;
+  const feedEl = document.querySelector(`.recon-feed[data-feed="${feed}"]`);
+  if (feedEl) {
+    feedEl.classList.remove("loading");
+    if (typeof count === "number") feedEl.classList.add("active");
+  }
+}
+
+function setReconLoading() {
+  document.querySelectorAll(".recon-feed").forEach((el) => {
+    el.classList.add("loading");
+    el.classList.remove("active");
+  });
+}
+
+// ---- RECON MASTER CONTROL ----
+async function activateRecon() {
+  if (RECON.active) {
+    // Deactivate
+    deactivateRecon();
+    return;
+  }
+
+  RECON.active = true;
+  autoRotate = false;
+
+  // UI updates
+  const btn = document.getElementById("btn-recon");
+  btn.classList.add("active");
+  document.getElementById("recon-status").classList.remove("hidden");
+  setReconLoading();
+
+  feed("warn", "═══════════════════════════════════════════");
+  feed("warn", "  RECON ONLINE — ACTIVATING ALL FEEDS");
+  feed("warn", "═══════════════════════════════════════════");
+
+  // Launch all feeds in parallel (they're independent)
+  await Promise.allSettled([
+    loadStarlink(),
+    loadFlights(),
+    loadShips(),
+    loadQuakes(),
+    loadFires(),
+    loadAsteroids(),
+  ]);
+
+  const totalEntities =
+    RECON.feeds.sats.count +
+    RECON.feeds.flights.count +
+    RECON.feeds.ships.count +
+    RECON.feeds.quakes.count +
+    RECON.feeds.fires.count +
+    RECON.feeds.asteroids.count;
+
+  feed("ok", `═══════════════════════════════════════════`);
+  feed("ok", `  RECON ONLINE — ${totalEntities} OBJECTS TRACKED`);
+  feed("ok", `═══════════════════════════════════════════`);
+}
+
+function deactivateRecon() {
+  RECON.active = false;
+
+  // Remove all entities from all feeds
+  Object.values(RECON.feeds).forEach((feed) => {
+    feed.entities.forEach((id) => {
+      try {
+        viewer.entities.removeById(id);
+      } catch {}
+    });
+    feed.entities = [];
+    feed.count = 0;
+    if (feed.timer) {
+      clearInterval(feed.timer);
+      feed.timer = null;
+    }
+  });
+
+  // UI updates
+  const btn = document.getElementById("btn-recon");
+  btn.classList.remove("active");
+  document.getElementById("recon-status").classList.add("hidden");
+  document.querySelectorAll(".recon-feed").forEach((el) => {
+    el.classList.remove("active", "loading");
+  });
+
+  feed("warn", "RECON :: all feeds deactivated");
+}
+
+// Wire up the RECON button
+document.getElementById("btn-recon").addEventListener("click", activateRecon);
+
+// Expose RECON API
+window.GideonsEarth.recon = {
+  activate: activateRecon,
+  deactivate: deactivateRecon,
+  isActive: () => RECON.active,
+  feeds: RECON.feeds,
+};

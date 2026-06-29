@@ -2412,100 +2412,104 @@ btnWalk.addEventListener("click", () => {
 });
 
 // Click-to-drop (single click, not the double-click pin handler)
-// Uses scene.pickPosition which picks the actual rendered 3D surface (including
-// Google Photorealistic 3D Tiles buildings/streets), not the ellipsoid.
 const walkClickHandler = new Cesium.ScreenSpaceEventHandler(viewer.canvas);
 walkClickHandler.setInputAction((click) => {
   if (!walk.awaiting) return;
-  // Try the actual rendered surface first (includes 3D tiles / photorealistic mesh)
-  let cart = scene.pickPosition(click.position);
+  console.log("WALK CLICK ON GLOBE", { awaiting: walk.awaiting });
+
+  // Use pickEllipsoid as primary — it always works when over the globe
+  let cart = viewer.camera.pickEllipsoid(click.position, scene.globe.ellipsoid);
+  // Fallback to pickPosition for terrain height if available
   if (!cart) {
-    // Fallback to ellipsoid picking
-    cart = viewer.camera.pickEllipsoid(click.position, scene.globe.ellipsoid);
+    try {
+      const picked = scene.pickPosition(click.position);
+      if (picked) cart = picked;
+    } catch {}
   }
-  if (!cart) return;
+  if (!cart) {
+    feed(
+      "err",
+      "WALK-MAN :: could not detect ground — try clicking closer to the globe",
+    );
+    return;
+  }
   const c = Cesium.Cartographic.fromCartesian(cart);
-  enterWalkMode(
-    Cesium.Math.toDegrees(c.longitude),
-    Cesium.Math.toDegrees(c.latitude),
-    c.height, // pass the exact surface height from the pick
-  );
+  const lon = Cesium.Math.toDegrees(c.longitude);
+  const lat = Cesium.Math.toDegrees(c.latitude);
+  console.log("WALK SPAWN AT", lat, lon);
+  enterWalkMode(lon, lat, c.height);
 }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
 async function enterWalkMode(lon, lat, pickedHeight) {
+  console.log("ENTER WALK MODE", { lon, lat, pickedHeight });
   walk.awaiting = false;
   walk.active = true;
   document.body.classList.add("walk-mode");
   walkHud.classList.remove("hidden");
   autoRotate = false;
 
-  // Determine ground height from the rendered 3D surface (Google tiles > terrain > 0).
-  // 1) If we got a picked height from the click, use it (most accurate).
-  // 2) Otherwise scene.sampleHeightMostDetailed which also knows about 3D tiles.
-  // 3) Otherwise fall back to terrain sampling.
-  let groundHeight = null;
-  if (typeof pickedHeight === "number" && Number.isFinite(pickedHeight)) {
+  // Determine ground height — use picked height first, then terrain
+  let groundHeight = 0;
+  if (
+    typeof pickedHeight === "number" &&
+    Number.isFinite(pickedHeight) &&
+    pickedHeight > -1000
+  ) {
     groundHeight = pickedHeight;
-  }
-  if (groundHeight == null && scene.sampleHeightSupported) {
+    console.log("Using picked height:", groundHeight);
+  } else {
+    // Try terrain sampling with timeout
     try {
-      const h = scene.sampleHeight(Cesium.Cartographic.fromDegrees(lon, lat));
-      if (typeof h === "number" && Number.isFinite(h)) groundHeight = h;
-    } catch {
-      /* ignore */
-    }
-  }
-  if (groundHeight == null) {
-    try {
-      const samples = await Cesium.sampleTerrainMostDetailed(
-        viewer.terrainProvider,
-        [Cesium.Cartographic.fromDegrees(lon, lat)],
-      );
-      groundHeight = samples[0].height || 0;
+      const samples = await Promise.race([
+        Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [
+          Cesium.Cartographic.fromDegrees(lon, lat),
+        ]),
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error("terrain timeout")), 5000),
+        ),
+      ]);
+      groundHeight = samples[0]?.height || 0;
+      console.log("Terrain height:", groundHeight);
     } catch {
       groundHeight = 0;
     }
   }
 
   // Never spawn below sea level
-  if (groundHeight < 0 || !Number.isFinite(groundHeight)) groundHeight = 0;
+  if (!Number.isFinite(groundHeight) || groundHeight < 0) groundHeight = 0;
 
-  // --- WATER CHECK: refuse to spawn over water ---
-  // Use the terrain water mask to detect if the click landed on a river,
-  // lake, or ocean. If so, warn the user and exit walk mode — the walker
-  // belongs on land.
+  // Water check — but don't block spawning if it fails
   let spawnIsWater = false;
   try {
-    spawnIsWater = await isOverWaterDeg(lon, lat);
+    spawnIsWater = await Promise.race([
+      isOverWaterDeg(lon, lat),
+      new Promise((_) => setTimeout(() => null, 3000)),
+    ]);
   } catch {
-    /* ignore — fall through */
-  }
-  if (spawnIsWater === true) {
-    // Cancel walk mode — don't drop the walker into water
-    walk.active = false;
-    walk.awaiting = false;
-    document.body.classList.remove("walk-mode");
-    walkHud.classList.add("hidden");
-    btnWalk.classList.remove("active");
-    feed(
-      "err",
-      "WALK-MAN :: cannot spawn over water — click on land to drop the walker",
-    );
-    return;
+    spawnIsWater = null;
   }
 
-  // Initialize water tracking — this is a known land position
+  if (spawnIsWater === true) {
+    // Over water — warn but still allow spawning at sea level
+    feed(
+      "warn",
+      "WALK-MAN :: spawning over water — you'll float at sea level. Click land!",
+    );
+    groundHeight = Math.max(groundHeight, 1); // 1m above sea level
+  }
+
+  // Initialize water tracking
   walk._lastLandHeight = groundHeight;
   walk._isOverWater = false;
   walk._waterWarningIssued = false;
 
-  // Start 50m above the surface and let gravity drop us onto it — guarantees we
-  // never spawn *inside* a building or hillside.
+  // Start 50m above surface, let gravity drop us
   walk.position = Cesium.Cartographic.fromDegrees(
     lon,
     lat,
     groundHeight + walk.eyeHeight + 50,
   );
+  console.log("Walk position set:", walk.position);
 
   if (groundHeight <= 0) {
     feed(

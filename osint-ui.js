@@ -1183,15 +1183,154 @@
     lastReport = report;
     renderReport(report);
     feed("ok", `DOSSIER :: complete in ${report.finishedMs} ms`);
-    // Pin to globe if we have geo
-    const geo = report.modules && report.modules.geoip;
-    if (geo && geo.lat && geo.lon && window.pinTarget) {
-      window.pinTarget({
-        label: q,
+    // Visualize on globe
+    visualizeDossierOnGlobe(q, report);
+  }
+
+  // Draw connection arcs, ASN path, and blast radius on the globe
+  // based on dossier results. Makes the OSINT tangible in 3D.
+  async function visualizeDossierOnGlobe(target, report) {
+    const viewer = window.GideonsEarth && window.GideonsEarth.viewer;
+    if (!viewer) return;
+    const pin = window.pinTarget;
+    const arc = window.arcPositions;
+    const mods = report.modules || {};
+
+    // Get self location for arc origin
+    let selfLat = null,
+      selfLon = null;
+    try {
+      const selfGeo = await window.fetchGeo("");
+      if (selfGeo) {
+        selfLat = selfGeo.lat;
+        selfLon = selfGeo.lon;
+      }
+    } catch {}
+
+    // 1) Pin the primary target
+    const geo = mods.geoip;
+    if (geo && geo.lat && geo.lon && pin) {
+      pin({
+        label: target,
         lat: geo.lat,
         lon: geo.lon,
         meta: `${geo.city || "?"}, ${geo.country_code || "?"} · ${geo.org || "?"}`,
+        danger: true,
       });
+
+      // 2) Draw blast radius circle (50km)
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(geo.lon, geo.lat),
+        ellipse: {
+          semiMajorAxis: 50000,
+          semiMinorAxis: 50000,
+          material: Cesium.Color.fromCssColorString("#ff2e6e").withAlpha(0.08),
+          outline: true,
+          outlineColor:
+            Cesium.Color.fromCssColorString("#ff2e6e").withAlpha(0.4),
+          height: 0,
+        },
+      });
+
+      // 3) Draw ASN path arc from self → target
+      if (selfLat && selfLon && arc) {
+        viewer.entities.add({
+          polyline: {
+            positions: arc(selfLon, selfLat, geo.lon, geo.lat, 300000),
+            width: 2,
+            material: new Cesium.PolylineGlowMaterialProperty({
+              glowPower: 0.3,
+              color: Cesium.Color.fromCssColorString("#ffb020").withAlpha(0.7),
+            }),
+            arcType: Cesium.ArcType.NONE,
+          },
+        });
+        // Pin self
+        pin({
+          label: "YOU",
+          lat: selfLat,
+          lon: selfLon,
+          meta: "origin",
+        });
+      }
+
+      // 4) If BGP data has upstream ASN, draw intermediate hop
+      const bgp = mods.bgp;
+      if (bgp && arc && selfLat) {
+        const midLat = (selfLat + geo.lat) / 2 + (Math.random() - 0.5) * 10;
+        const midLon = (selfLon + geo.lon) / 2 + (Math.random() - 0.5) * 20;
+        const asn =
+          bgp.asn ||
+          (bgp.prefixes &&
+            bgp.prefixes[0] &&
+            bgp.prefixes[0].asn &&
+            bgp.prefixes[0].asn.asn);
+        if (asn) {
+          viewer.entities.add({
+            polyline: {
+              positions: arc(selfLon, selfLat, midLon, midLat, 200000),
+              width: 1,
+              material: new Cesium.PolylineGlowMaterialProperty({
+                glowPower: 0.2,
+                color:
+                  Cesium.Color.fromCssColorString("#12ffc6").withAlpha(0.5),
+              }),
+              arcType: Cesium.ArcType.NONE,
+            },
+          });
+          pin({
+            label: `AS${asn}`,
+            lat: midLat,
+            lon: midLon,
+            meta: bgp.name || bgp.prefixes?.[0]?.asn?.name || "upstream ASN",
+          });
+        }
+      }
+
+      // 5) If Shodan has ports, draw port indicators around the target
+      const shodan = mods.shodan;
+      if (shodan && shodan.ports && pin) {
+        shodan.ports.slice(0, 8).forEach((port, i) => {
+          const angle = (i / Math.min(8, shodan.ports.length)) * Math.PI * 2;
+          const offsetLat = geo.lat + Math.cos(angle) * 0.5;
+          const offsetLon = geo.lon + Math.sin(angle) * 0.5;
+          viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(offsetLon, offsetLat),
+            point: {
+              pixelSize: 4,
+              color: Cesium.Color.fromCssColorString("#12ffc6"),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+            label: {
+              text: `:${port}`,
+              font: "8px JetBrains Mono, monospace",
+              fillColor: Cesium.Color.fromCssColorString("#12ffc6"),
+              outlineColor: Cesium.Color.BLACK,
+              outlineWidth: 1,
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              pixelOffset: new Cesium.Cartesian2(6, -3),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+          });
+        });
+      }
+
+      // 6) Fly to the target
+      window.autoRotate = false;
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(geo.lon, geo.lat, 2000000),
+        duration: 2.5,
+      });
+    }
+
+    // 7) For domains with subdomains, pin a few
+    const certs = mods.certs;
+    if (certs && certs.subs && certs.subs.length > 0 && pin) {
+      // Just note the count — pinning 1000+ subdomains would be chaos
+      feed(
+        "ok",
+        `DOSSIER :: ${certs.subs.length} subdomains found for ${target}`,
+      );
     }
   }
 

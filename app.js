@@ -3,6 +3,17 @@
    3D globe (CesiumJS) + GideonIntel OSINT panel
    ========================================================= */
 
+// Global error handler — log to console AND to the feed
+window.addEventListener("error", (e) => {
+  console.error("GIDEON ERROR:", e.message, e.filename + ":" + e.lineno);
+  if (window.feed) window.feed("err", "JS ERROR: " + e.message);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("GIDEON PROMISE REJECTION:", e.reason);
+  if (window.feed)
+    window.feed("err", "PROMISE ERROR: " + (e.reason?.message || e.reason));
+});
+
 // ---------- STARFIELD GENERATOR (CSS box-shadow stars) ----------
 // Generates hundreds of pinpoint stars as a single box-shadow value on three
 // layered divs (small, mid, big). Sits behind the transparent Cesium canvas.
@@ -1990,6 +2001,7 @@ const btnCameras = document.getElementById("btn-cameras");
 let camerasOn = false;
 btnCameras &&
   btnCameras.addEventListener("click", async () => {
+    console.log("CAMERA BUTTON CLICKED", { camerasOn });
     if (!camerasOn) {
       camerasOn = true;
       btnCameras.classList.add("active");
@@ -2352,6 +2364,10 @@ const walk = {
 
 const btnWalk = document.getElementById("btn-walk");
 btnWalk.addEventListener("click", () => {
+  console.log("WALK BUTTON CLICKED", {
+    active: walk.active,
+    awaiting: walk.awaiting,
+  });
   if (walk.active) {
     exitWalkMode();
     return;
@@ -3024,14 +3040,16 @@ async function reconFetch(url, opts = {}, retries = 2) {
         throw new Error(`HTTP ${r.status}`);
     } catch (e) {
       if (i === retries) {
-        // Try CORS proxy as last resort
-        try {
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-          const r = await fetch(proxyUrl, {
-            signal: AbortSignal.timeout(20000),
-          });
-          if (r.ok) return r;
-        } catch {}
+        // Try CORS proxy as last resort (only for GET requests)
+        if (!opts.method || opts.method === "GET") {
+          try {
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+            const r = await fetch(proxyUrl, {
+              signal: AbortSignal.timeout(20000),
+            });
+            if (r.ok) return r;
+          } catch {}
+        }
         throw e;
       }
       await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
@@ -3259,10 +3277,30 @@ async function loadFlights() {
   let usedDemo = false;
 
   try {
-    feed("warn", "RECON :: connecting to global ADS-B feed...");
-    const res = await reconFetch("https://api.adsb.lol/v2/all", {}, 1);
-    const j = await res.json();
-    aircraft = j.ac || [];
+    feed("warn", "RECON :: connecting to ADS-B feed...");
+    // /v2/all is deprecated — use /v2/mil + regional point queries
+    const urls = [
+      "https://api.adsb.lol/v2/mil",
+      "https://api.adsb.lol/v2/point/40.7/-74.0/300",
+      "https://api.adsb.lol/v2/point/51.5/-0.1/300",
+      "https://api.adsb.lol/v2/point/35.6/139.7/300",
+      "https://api.adsb.lol/v2/point/-33.9/151.2/300",
+    ];
+    const results = await Promise.allSettled(
+      urls.map((u) => reconFetch(u, {}, 0).then((r) => r.json())),
+    );
+    const seen = new Set();
+    results.forEach((r) => {
+      if (r.status === "fulfilled" && r.value && r.value.ac) {
+        r.value.ac.forEach((a) => {
+          const key = a.hex || a.icao || a.flight || "";
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            aircraft.push(a);
+          }
+        });
+      }
+    });
     feed("ok", `RECON :: ${aircraft.length} aircraft live from ADS-B`);
   } catch (e) {
     // Fallback to demo data

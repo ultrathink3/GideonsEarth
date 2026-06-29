@@ -466,13 +466,13 @@
       if (GATE[id] && GATE[id] !== "free") lockTab(tab, id);
     });
     // --- Tool-rail buttons by id ---
+    // Only lock premium-tier features. Core features (cameras, walk, etc.) remain free.
     const toolMap = {
       "btn-sats": "tool:sats",
       "btn-flights": "tool:flights",
       "btn-quakes": "tool:quakes",
       "btn-volcano": "tool:volcano",
       "btn-gibs": "tool:gibs",
-      "btn-walk": "tool:walk",
     };
     for (const [id, feat] of Object.entries(toolMap)) {
       const b = document.getElementById(id);

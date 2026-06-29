@@ -800,26 +800,60 @@ const hudCoords = document.getElementById("hud-coords");
 const hudAlt = document.getElementById("hud-alt");
 const hudTime = document.getElementById("hud-time");
 
+// Coordinate locator — updates HUD with lat/lon under cursor
+// Uses scene.pick() for accuracy with terrain, falls back to pickEllipsoid
 viewer.canvas.addEventListener("mousemove", (e) => {
-  const cartesian = viewer.camera.pickEllipsoid(
-    new Cesium.Cartesian2(e.clientX, e.clientY),
-    scene.globe.ellipsoid,
-  );
-  if (cartesian) {
+  if (!scene || !scene.globe) return;
+  const canvasRect = viewer.canvas.getBoundingClientRect();
+  const x = e.clientX - canvasRect.left;
+  const y = e.clientY - canvasRect.top;
+  const position = new Cesium.Cartesian2(x, y);
+
+  // Try picking the globe surface (works with terrain)
+  let cartesian = scene.pickPosition(position);
+  if (!Cesium.defined(cartesian)) {
+    // Fallback to ellipsoid picking
+    cartesian = viewer.camera.pickEllipsoid(position, scene.globe.ellipsoid);
+  }
+  if (Cesium.defined(cartesian)) {
     const c = Cesium.Cartographic.fromCartesian(cartesian);
-    const lon = Cesium.Math.toDegrees(c.longitude).toFixed(4);
-    const lat = Cesium.Math.toDegrees(c.latitude).toFixed(4);
-    hudCoords.textContent = `LAT: ${lat.padStart(8)}  LON: ${lon.padStart(9)}`;
+    const lon = Cesium.Math.toDegrees(c.longitude).toFixed(5);
+    const lat = Cesium.Math.toDegrees(c.latitude).toFixed(5);
+    const latStr = lat.padStart(9);
+    const lonStr = lon.padStart(10);
+    hudCoords.textContent = `LAT: ${latStr}  LON: ${lonStr}`;
+  } else {
+    hudCoords.textContent = `LAT: ---.-----  LON: ----.-----`;
   }
 });
+// Altitude display — updates on camera move
 scene.camera.changed.addEventListener(() => {
+  if (!scene || !scene.camera) return;
+  try {
+    const h = scene.camera.positionCartographic.height;
+    hudAlt.textContent = `ALT: ${Math.round(h).toLocaleString()} m`;
+  } catch {
+    hudAlt.textContent = `ALT: -------- m`;
+  }
+});
+
+// UTC clock — updates every second
+setInterval(() => {
+  try {
+    const d = new Date();
+    hudTime.textContent = `UTC ${d.toISOString().slice(11, 19)}`;
+  } catch {
+    /* ignore */
+  }
+}, 1000);
+
+// Force initial update
+if (scene && scene.camera && scene.camera.positionCartographic) {
   const h = scene.camera.positionCartographic.height;
   hudAlt.textContent = `ALT: ${Math.round(h).toLocaleString()} m`;
-});
-setInterval(() => {
-  const d = new Date();
-  hudTime.textContent = `UTC ${d.toISOString().slice(11, 19)}`;
-}, 1000);
+}
+const _now = new Date();
+hudTime.textContent = `UTC ${_now.toISOString().slice(11, 19)}`;
 
 // ---------- View modes ----------
 document.querySelectorAll(".tool[data-view]").forEach((btn) => {
